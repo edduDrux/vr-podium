@@ -110,8 +110,8 @@ namespace Podium.Slides
 
             if (pasta == null)
             {
-                diagnostico = "Sem imagens: exporte a apresentação como PNG na pasta \"" +
-                              PastaEsperada(caminhoDaApresentacao) + "\".";
+                diagnostico = "Sem imagens para a pasta \"" + PastaEsperada(caminhoDaApresentacao) +
+                              "\": use o menu Podium > Exportar slides da apresentação (PDF ou PPTx).";
                 Exibir(null);
                 return;
             }
