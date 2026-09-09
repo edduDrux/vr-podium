@@ -347,6 +347,15 @@ namespace Podium.Slides
 
                 if (requisicao.result != UnityWebRequest.Result.Success)
                 {
+                    // Nome de arquivo de apresentação costuma ter espaço, parêntese e
+                    // acento, que viram %20 e %C3%B3 na URI. Se o file:// tropeçar em
+                    // algum deles, ler o arquivo direto custa uma pausa curta, uma vez
+                    // por slide — melhor que parede vazia sem explicação.
+                    if (CarregarDeUmaVez(indice))
+                    {
+                        yield break;
+                    }
+
                     Debug.LogWarning("[Podium] Slide " + (indice + 1) + " não carregou: " +
                                      requisicao.error);
                     yield break;
