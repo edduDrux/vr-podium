@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9c86da475d2e8614fb95aab86034b712, type: 3}
+  m_Name: OrientadorAcolhedor
+  m_EditorClassIdentifier: Podium.Runtime::Podium.Scenarios.PersonaDefinition
+  apiValue: orientador_acolhedor
+  displayName: Orientador acolhedor
+  description: "Orientador acolhedor: faz perguntas construtivas para aprofundar o racioc\xEDnio do apresentador, sem intimid\xE1-lo."
+  avatarPrefab: {fileID: 0}
+  seatIndex: 1

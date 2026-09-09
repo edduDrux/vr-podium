@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 622d70b645aed2943a0e92fa81acb67d, type: 3}
+  m_Name: SalaDeAula
+  m_EditorClassIdentifier: Podium.Runtime::Podium.Scenarios.ScenarioDefinition
+  apiValue: sala_de_aula
+  displayName: Sala de aula
+  description: "Defesa de TCC diante de uma banca sentada \xE0 sua frente."
+  sceneName: SalaDeAula
+  spawnPosition: {x: 0, y: 0, z: 0}
+  spawnYaw: 0
