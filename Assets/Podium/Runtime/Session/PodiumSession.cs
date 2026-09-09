@@ -47,6 +47,22 @@ namespace Podium.Session
 
         [SerializeField] private float chunkRetryDelaySeconds = 2f;
 
+        /// <summary>
+        /// Persona e cenário podem ser trocados pelo lobby antes de <see cref="BeginSession"/>.
+        /// Trocar depois não tem efeito: o backend fixa os dois no /init.
+        /// </summary>
+        public PersonaDefinition Persona
+        {
+            get { return persona; }
+            set { persona = value; }
+        }
+
+        public ScenarioDefinition Scenario
+        {
+            get { return scenario; }
+            set { scenario = value; }
+        }
+
         public event Action<PodiumSessionState> StateChanged;
         public event Action<string, float> AnalysisProgress;
         public event Action<FeedbackResponse> FeedbackReady;
@@ -94,7 +110,11 @@ namespace Podium.Session
         /// <summary>Cria a sessão no backend e ingere o PDF/PPTx. Chame antes de gravar.</summary>
         public void BeginSession(string presentationFilePath)
         {
-            if (State != PodiumSessionState.Idle && State != PodiumSessionState.Failed)
+            // Completed também libera: depois do feedback, uma nova sessão é o caminho
+            // natural (trocar a persona e apresentar de novo), não uma exceção.
+            if (State != PodiumSessionState.Idle &&
+                State != PodiumSessionState.Failed &&
+                State != PodiumSessionState.Completed)
             {
                 Debug.LogWarning("[Podium] BeginSession ignorado: sessão já em andamento.");
                 return;
