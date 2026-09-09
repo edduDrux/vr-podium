@@ -28,8 +28,8 @@ Assets/Podium/
   Runtime/Audio/      PresentationRecorder (chunks) · WavEncoder
   Runtime/Session/    PodiumSession (orquestra tudo) · SessionStatus · PersonaValues · ScenarioValues
   Runtime/Scenarios/  ScenarioDefinition · PersonaDefinition (ScriptableObjects)
-  Scenarios/          assets de cenário (crie via Assets > Create > Podium > Cenário)
-  Personas/           assets de persona  (Assets > Create > Podium > Persona)
+  Scenarios/          SalaDeAula.asset (único cenário que o backend conhece)
+  Personas/           ProfessorRigoroso · OrientadorAcolhedor · EspecialistaTecnico (espelham PersonaType)
   Samples/            PodiumSmokeTest · SmokeTest.unity (cena pronta)
 Assets/Tests/EditMode/   WavEncoderTests · PodiumDtoTests (NUnit, sem rede)
 Assets/Editor/           PodiumTestSetup (menu Podium > Preparar cena de teste)
@@ -41,6 +41,41 @@ Nenhum pacote externo: os DTOs usam `JsonUtility` e as chamadas usam `UnityWebRe
 ambos módulos internos do Unity. Um único assembly definition (`Podium.Runtime`), que
 existe só para que os testes de EditMode enxerguem o código — asmdef não pode referenciar
 `Assembly-CSharp`. Um desenvolvedor só: simplicidade operacional antes de elegância.
+
+## Como rodar a Sala de Aula (sem headset)
+
+A cena `Assets/Podium/Scenes/SalaDeAula.unity` já vem montada e ligada aos assets de
+cenário e de persona. Ela funciona com microfone do PC e com a API local.
+
+1. Abra o **Docker Desktop** e espere o ícone ficar verde. Depois suba o backend:
+
+```bash
+docker compose -f C:/Users/eduar/projetos/podium/docker-compose.yml up -d
+```
+
+2. Confira que a API responde antes de abrir o Unity:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+3. No Unity, abra `Assets/Podium/Scenes/SalaDeAula.unity` (duplo clique no Project) e
+   dê **Play**. O painel da esquerda verifica a API sozinho; se ela estiver fora do ar,
+   a mensagem diz o que fazer.
+4. Escolha a persona da banca, confira o caminho do PDF e clique em **Criar sessão**.
+5. **Começar apresentação** grava o microfone padrão do Windows. Fale por alguns
+   segundos e clique em **Encerrar apresentação**. O último trecho sobe, a análise começa
+   e o Feedback Duplo aparece no mesmo painel, com a âncora de cada pergunta.
+
+O que está na cena e onde mexer:
+
+| Objeto | Componentes | Para quê |
+|---|---|---|
+| `Podium` | `PodiumApiClient`, `PresentationRecorder`, `PodiumSession`, `SalaDeAulaController`, `SalaDeAulaCenografia` | O fluxo inteiro. O `Controller` desenha o painel (IMGUI, sem pacote). A `Cenografia` cria chão, púlpito, mesa e um lugar por persona em runtime. |
+| `Main Camera` | Camera | Reposicionada no `spawnPosition` do cenário, a 1,6 m de altura. |
+
+Uma persona com `avatarPrefab` preenchido é instanciada no seu `seatIndex`; sem prefab,
+entra uma cápsula colorida. É esse o ponto de encaixe dos avatares do TCC III.
 
 ## Primeiro passo: o teste de fumaça
 
