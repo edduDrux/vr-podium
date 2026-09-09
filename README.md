@@ -13,12 +13,14 @@ O backend é a fonte da verdade do contrato. Quando este README e o código do
 
 ## Estado atual
 
-Esqueleto de integração. **Existe:** o cliente HTTP completo das cinco rotas, gravação
-de microfone em pedaços, a máquina de estados da sessão e um teste de fumaça que roda o
-fluxo inteiro no Editor. **Não existe:** cena, avatares, interação XR, TTS.
+Integração fechada e uma sala jogável. **Existe:** o cliente HTTP completo das cinco
+rotas, gravação de microfone em pedaços, a máquina de estados da sessão, um teste de
+fumaça que roda o fluxo inteiro no Editor e a Sala de Aula com os slides projetados na
+parede e o navegador das perguntas da banca. **Não existe:** avatares, interação XR, TTS.
 
-Isso é deliberado — a integração é o risco técnico do projeto, e ela cabe num teste de
-Editor. Modelar sala de aula não é o TCC.
+A ordem é deliberada — a integração é o risco técnico do projeto, e ela cabe num teste de
+Editor. Modelar sala de aula não é o TCC: a cenografia é de primitivos, e as personas
+esperam por `avatarPrefab`.
 
 ## Estrutura
 
@@ -27,12 +29,14 @@ Assets/Podium/
   Runtime/Api/        PodiumApiClient · DTOs · PodiumApiConfig · PodiumResult
   Runtime/Audio/      PresentationRecorder (chunks) · WavEncoder
   Runtime/Session/    PodiumSession (orquestra tudo) · SessionStatus · PersonaValues · ScenarioValues
-  Runtime/Scenarios/  ScenarioDefinition · PersonaDefinition (ScriptableObjects)
+  Runtime/Scenarios/  ScenarioDefinition · PersonaDefinition (ScriptableObjects) · SalaDeAulaCenografia
+  Runtime/Slides/     ApresentacaoDeSlides (acha e troca as imagens) · TelaDeSlides
   Scenarios/          SalaDeAula.asset (único cenário que o backend conhece)
   Personas/           ProfessorRigoroso · OrientadorAcolhedor · EspecialistaTecnico (espelham PersonaType)
+  Scenes/             SalaDeAula.unity (cena jogável, sem headset)
   Samples/            PodiumSmokeTest · SmokeTest.unity (cena pronta)
-Assets/Tests/EditMode/   WavEncoderTests · PodiumDtoTests (NUnit, sem rede)
-Assets/Editor/           PodiumTestSetup (menu Podium > Preparar cena de teste)
+Assets/Tests/EditMode/   WavEncoderTests · PodiumDtoTests · OrdemDosSlidesTests (NUnit, sem rede)
+Assets/Editor/           PodiumTestSetup (cena de teste) · PodiumSlideExporter (PDF/PPTx > PNG)
 Assets/Settings/         assets do URP (PC_RPAsset · Mobile_RPAsset · renderers)
 Assets/Plugins/Android/network_security_config.xml
 ```
@@ -82,12 +86,20 @@ engine. Então a sala projeta uma **exportação em imagens** do mesmo arquivo q
 slide (`slide1.png`, `slide2.png`, …, em ordem natural — `slide10` depois de `slide2`).
 Se o caminho da apresentação já apontar para uma pasta, ela é usada direto.
 
-No PowerPoint: **Arquivo > Exportar > Alterar Tipo de Arquivo > PNG > Todos os Slides**.
-Com o backend no ar, o PyMuPDF do container também resolve:
+Você não precisa exportar à mão: o menu **Podium > Exportar slides da apresentação** faz
+isso pelos dois formatos. Escolha o arquivo e ele escreve a pasta irmã, avisando antes se
+já houver uma exportação lá.
 
-```bash
-docker compose -f C:/Users/eduar/projetos/podium/docker-compose.yml exec api python -c "import fitz, pathlib; d=pathlib.Path('/app/storage/_fixtures'); (d/'tcc_slides_slides').mkdir(exist_ok=True); doc=fitz.open(d/'tcc_slides.pdf'); [doc[i].get_pixmap(dpi=150).save(d/'tcc_slides_slides'/f'slide{i+1}.png') for i in range(len(doc))]"
-```
+| Formato | Quem rasteriza | Precisa de |
+|---|---|---|
+| `.pptx` / `.ppt` | PowerPoint da sua máquina, via COM | Office instalado |
+| `.pdf` | PyMuPDF do container do backend | `docker compose up -d` na pasta `podium` |
+
+O PDF entra e as imagens saem por `docker cp`, então funciona para PDF em qualquer lugar
+do PC, não só para os que estão no volume montado. O PyMuPDF é a mesma biblioteca que
+extrai o texto dos slides no backend: página numerada aqui é página numerada lá.
+Se preferir fazer na mão, o PowerPoint exporta em **Arquivo > Exportar > Alterar Tipo de
+Arquivo > PNG > Todos os Slides**.
 
 O botão **Conferir slides** no lobby diz quantas imagens foram encontradas antes de você
 criar a sessão. Durante a apresentação, passe de slide pelas setas do teclado, por
