@@ -30,7 +30,7 @@ Assets/Podium/
   Runtime/Audio/      PresentationRecorder (chunks) · WavEncoder
   Runtime/Session/    PodiumSession (orquestra tudo) · SessionStatus · PersonaValues · ScenarioValues
   Runtime/Scenarios/  ScenarioDefinition · PersonaDefinition (ScriptableObjects) · SalaDeAulaCenografia
-  Runtime/Slides/     ApresentacaoDeSlides (acha e troca as imagens) · TelaDeSlides
+  Runtime/Slides/     ApresentacaoDeSlides · TelaDeSlides · ConversorDeSlides (PDF/PPTx > PNG)
   Scenarios/          SalaDeAula.asset (único cenário que o backend conhece)
   Personas/           ProfessorRigoroso · OrientadorAcolhedor · EspecialistaTecnico (espelham PersonaType)
   Scenes/             SalaDeAula.unity (cena jogável, sem headset)
@@ -90,26 +90,40 @@ O que está na cena e onde mexer:
 
 ### Os slides na parede
 
-O runtime do Unity não abre PDF nem PPTx — não existe decodificador desses formatos na
-engine. Então a sala projeta uma **exportação em imagens** do mesmo arquivo que sobe no
-`/init`: para `tcc_slides.pdf`, a pasta irmã `tcc_slides_slides/`, com um PNG ou JPG por
-slide (`slide1.png`, `slide2.png`, …, em ordem natural — `slide10` depois de `slide2`).
-Se o caminho da apresentação já apontar para uma pasta, ela é usada direto.
+**Basta apontar o PDF ou o PPTx** — o mesmo caminho que vai para o `/init`. Não existe
+pasta para preparar.
 
-Você não precisa exportar à mão: o menu **Podium > Exportar slides da apresentação** faz
-isso pelos dois formatos. Escolha o arquivo e ele escreve a pasta irmã, avisando antes se
-já houver uma exportação lá.
+O runtime do Unity não decodifica nenhum dos dois formatos (não há rasterizador de PDF na
+engine, e embutir um seria dependência nativa só para desenhar uma parede), então alguém
+converte. Aqui é a sua própria máquina, na primeira vez que você aponta o arquivo:
 
 | Formato | Quem rasteriza | Precisa de |
 |---|---|---|
 | `.pptx` / `.ppt` | PowerPoint da sua máquina, via COM | Office instalado |
 | `.pdf` | PyMuPDF do container do backend | `docker compose up -d` na pasta `podium` |
 
-O PDF entra e as imagens saem por `docker cp`, então funciona para PDF em qualquer lugar
-do PC, não só para os que estão no volume montado. O PyMuPDF é a mesma biblioteca que
-extrai o texto dos slides no backend: página numerada aqui é página numerada lá.
-Se preferir fazer na mão, o PowerPoint exporta em **Arquivo > Exportar > Alterar Tipo de
-Arquivo > PNG > Todos os Slides**.
+As imagens vão para `Application.persistentDataPath/slides/<arquivo>-<impressão>`, fora
+das suas pastas: exportação é subproduto, não arquivo seu. A impressão carrega tamanho e
+data de modificação, então cada sessão reaproveita a conversão anterior e um deck editado
+é reconvertido sozinho. O PyMuPDF é a mesma biblioteca que extrai o texto dos slides no
+backend: página numerada na parede é página numerada na âncora da pergunta.
+
+A conversão roda numa thread à parte, com o painel dizendo o que está acontecendo — leva
+segundos no primeiro Play de cada versão do arquivo.
+
+Duas saídas continuam valendo, e têm precedência sobre a conversão:
+
+- uma pasta irmã `<arquivo>_slides/` com os PNG, se existir;
+- o próprio campo de apresentação apontando direto para uma pasta de imagens.
+
+O menu **Podium > Exportar slides da apresentação** escreve essa pasta irmã quando você
+quer as imagens à mão — para conferir o que a banca vê, levar para outra máquina, ou usar
+um deck num PC sem Office. Os arquivos são lidos em ordem natural (`slide10` depois de
+`slide2`).
+
+Num headset não haverá Docker nem Office: lá quem renderiza as páginas terá de ser o
+backend, que já recebe o arquivo no `/init`. Por isso a conversão mora atrás de um único
+`ConversorDeSlides.Disponivel`, e não espalhada pela cena.
 
 O botão **Conferir slides** no lobby diz quantas imagens foram encontradas antes de você
 criar a sessão. Durante a apresentação, passe de slide pelas setas do teclado, por

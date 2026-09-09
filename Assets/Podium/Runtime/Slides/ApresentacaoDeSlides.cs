@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -11,11 +12,12 @@ namespace Podium.Slides
     /// A apresentação dentro da sala: encontra as imagens dos slides, guarda qual está no
     /// ar e atende aos comandos de passar e voltar.
     /// <para>
-    /// O runtime do Unity não rasteriza PDF nem PPTx — não existe decodificador desses
-    /// formatos na engine, e trazer um seria uma dependência nativa só para desenhar uma
-    /// parede. Então a fonte é uma pasta de imagens exportada do mesmo arquivo que sobe no
-    /// /init: para <c>tcc_slides.pdf</c>, a pasta irmã <c>tcc_slides_slides/</c>, com um PNG
-    /// ou JPG por slide. A banca analisa o arquivo; a sala mostra a exportação dele.
+    /// Recebe o mesmo caminho que sobe no /init — o PDF ou o PPTx — e resolve o resto
+    /// sozinha, porque o runtime do Unity não rasteriza nenhum dos dois formatos e ninguém
+    /// deveria precisar saber disso para ensaiar uma defesa. A ordem é: pasta de imagens, se
+    /// o caminho apontar para uma; a pasta irmã <c>&lt;arquivo&gt;_slides/</c>, se existir; e
+    /// senão o <see cref="ConversorDeSlides"/> converte o arquivo, uma vez por versão dele.
+    /// A banca analisa o arquivo; a sala projeta a conversão dele.
     /// </para>
     /// </summary>
     public class ApresentacaoDeSlides : MonoBehaviour
@@ -51,6 +53,10 @@ namespace Podium.Slides
 
         private int indiceAtual = -1;
         private string diagnostico = "Nenhuma apresentação carregada.";
+
+        // Escritos pela thread da conversão, lidos pela corrotina que a espera.
+        private volatile bool conversaoTerminou;
+        private volatile string erroDaConversao;
 
         /// <summary>Dispara a cada troca de slide. Null significa "nada para mostrar".</summary>
         public event Action<Texture2D> SlideExibido;
@@ -108,13 +114,29 @@ namespace Podium.Slides
                 return;
             }
 
-            if (pasta == null)
+            if (pasta != null)
             {
-                diagnostico = "Sem imagens para a pasta \"" + PastaEsperada(caminhoDaApresentacao) +
-                              "\": use o menu Podium > Exportar slides da apresentação (PDF ou PPTx).";
-                Exibir(null);
+                UsarPasta(pasta, "em " + pasta);
                 return;
             }
+
+            // Ninguém precisa preparar pasta nenhuma: o PDF ou o PPTx apontado no lobby é
+            // convertido aqui mesmo, uma vez por versão do arquivo.
+            if (ConversorDeSlides.Disponivel && ConversorDeSlides.Suportado(caminhoDaApresentacao))
+            {
+                Converter(caminhoDaApresentacao);
+                return;
+            }
+
+            diagnostico = "Sem imagens para \"" + Path.GetFileName(caminhoDaApresentacao) +
+                          "\": nesta plataforma a conversão não roda; exporte os slides como " +
+                          "PNG na pasta \"" + PastaEsperada(caminhoDaApresentacao) + "\".";
+            Exibir(null);
+        }
+
+        private void UsarPasta(string pasta, string origem)
+        {
+            arquivos.Clear();
 
             foreach (string arquivo in Directory.GetFiles(pasta))
             {
@@ -132,8 +154,85 @@ namespace Podium.Slides
             }
 
             arquivos.Sort(CompararNomes);
-            diagnostico = arquivos.Count + " slides em " + pasta;
+            diagnostico = arquivos.Count + " slides " + origem;
             Ir(0);
+        }
+
+        /// <summary>
+        /// Converte a apresentação em imagens. A pasta é reaproveitada entre sessões: a
+        /// chave dela carrega tamanho e data do arquivo, então só reconverte o que mudou.
+        /// </summary>
+        private void Converter(string caminho)
+        {
+            string destino = ConversorDeSlides.PastaDeCache(caminho);
+            if (destino == null)
+            {
+                diagnostico = "Arquivo não encontrado: " + caminho;
+                Exibir(null);
+                return;
+            }
+
+            if (ConversorDeSlides.ContarImagens(destino) > 0)
+            {
+                UsarPasta(destino, "do " + Path.GetExtension(caminho).TrimStart('.').ToUpperInvariant());
+                return;
+            }
+
+            // Fora do Play (pré-visualização do Editor) não há corrotina: converte na hora.
+            if (!Application.isPlaying)
+            {
+                string falha = ConversorDeSlides.Converter(caminho, destino);
+                if (falha != null)
+                {
+                    diagnostico = "Não deu para converter: " + falha;
+                    Exibir(null);
+                    return;
+                }
+
+                UsarPasta(destino, "do " + Path.GetExtension(caminho).TrimStart('.').ToUpperInvariant());
+                return;
+            }
+
+            StartCoroutine(ConverterEUsar(caminho, destino));
+        }
+
+        /// <summary>
+        /// A conversão chama PowerPoint ou Docker e leva segundos. Numa thread à parte, o
+        /// painel continua desenhando e dizendo o que está acontecendo — travar a tela seria
+        /// indistinguível de travar de vez.
+        /// </summary>
+        private IEnumerator ConverterEUsar(string caminho, string destino)
+        {
+            diagnostico = "Convertendo " + Path.GetFileName(caminho) +
+                          " em imagens (só na primeira vez)...";
+            Exibir(null);
+
+            conversaoTerminou = false;
+            erroDaConversao = null;
+
+            Thread trabalho = new Thread(() =>
+            {
+                erroDaConversao = ConversorDeSlides.Converter(caminho, destino);
+                conversaoTerminou = true;
+            });
+
+            trabalho.IsBackground = true;
+            trabalho.Start();
+
+            while (!conversaoTerminou)
+            {
+                yield return null;
+            }
+
+            if (erroDaConversao != null)
+            {
+                diagnostico = "Não deu para converter " + Path.GetFileName(caminho) + ": " +
+                              erroDaConversao;
+                Exibir(null);
+                yield break;
+            }
+
+            UsarPasta(destino, "do " + Path.GetExtension(caminho).TrimStart('.').ToUpperInvariant());
         }
 
         /// <summary>Esvazia a sala: apaga as texturas e devolve a tela ao estado vazio.</summary>
