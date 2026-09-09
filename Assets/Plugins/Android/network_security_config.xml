@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  O Android bloqueia HTTP em texto claro desde a API 28, e a API do Podium roda em
+  http:// na LAN (sem autenticação, por decisão registrada no PRD: a API é local,
+  inclusive nos testes com o VR). Sem esta exceção o build do Quest falha em toda
+  requisição, e o erro que chega no Unity é um "Unknown Error" genérico.
+
+  Troque o domínio abaixo pelo IP do PC que roda o `docker compose`. Este arquivo só
+  entra no build depois de referenciado pelo manifesto — veja o README, seção "Rede".
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.0.10</domain>
+    </domain-config>
+</network-security-config>
