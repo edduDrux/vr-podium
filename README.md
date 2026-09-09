@@ -36,7 +36,7 @@ Assets/Podium/
   Scenes/             SalaDeAula.unity (cena jogável, sem headset)
   Samples/            PodiumSmokeTest · SmokeTest.unity (cena pronta)
 Assets/Tests/EditMode/   WavEncoderTests · PodiumDtoTests · OrdemDosSlidesTests (NUnit, sem rede)
-Assets/Editor/           PodiumTestSetup (cena de teste) · PodiumSlideExporter (PDF/PPTx > PNG)
+Assets/Editor/           PodiumTestSetup · PodiumSlideExporter (PDF/PPTx > PNG) · PodiumSalaPreview
 Assets/Settings/         assets do URP (PC_RPAsset · Mobile_RPAsset · renderers)
 Assets/Plugins/Android/network_security_config.xml
 ```
@@ -70,6 +70,16 @@ curl http://localhost:8000/api/v1/health
 5. **Começar apresentação** grava o microfone padrão do Windows. Fale por alguns
    segundos e clique em **Encerrar apresentação**. O último trecho sobe, a análise começa
    e o Feedback Duplo aparece no mesmo painel, com a âncora de cada pergunta.
+
+**A cena parece vazia no Editor, e está tudo certo.** O arquivo salvo tem três objetos —
+`Podium`, `Main Camera` e `Directional Light`. Piso, paredes, tela de projeção, púlpito,
+banca e plateia são primitivos criados por código em `Start()`, para que o material seja
+sempre o do pipeline ativo (URP): cena com material referenciado à mão fica rosa quando o
+pipeline muda.
+
+Para ver e ajustar a sala sem dar Play, use **Podium > Pré-visualizar a Sala de Aula** —
+ela monta na Scene view com o slide 1 já na parede, e **Podium > Limpar a
+pré-visualização da sala** derruba tudo. Nada disso é gravado no arquivo da cena.
 
 O que está na cena e onde mexer:
 
