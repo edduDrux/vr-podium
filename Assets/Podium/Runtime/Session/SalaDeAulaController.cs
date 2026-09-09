@@ -43,8 +43,11 @@ namespace Podium.Session
         private float decorridoAnalise;
 
         private FeedbackResponse feedback;
+        private int perguntaSelecionada;
+        private bool verTodasAsPerguntas;
         private string erro;
         private bool voltarAoLobby;
+        private bool atalhosDosSlides = true;
         private Vector2 scroll;
 
         private GUIStyle titulo;
@@ -84,6 +87,11 @@ namespace Podium.Session
             }
 
             AplicarSelecao();
+
+            if (slides != null)
+            {
+                atalhosDosSlides = slides.AtalhosDeTeclado;
+            }
 
             // Verificar já na abertura: o erro mais comum é o backend fora do ar, e ele
             // precisa aparecer antes de o usuário escolher persona e apertar "Criar".
@@ -165,6 +173,35 @@ namespace Podium.Session
         {
             feedback = f;
             scroll = Vector2.zero;
+            verTodasAsPerguntas = false;
+            SelecionarPergunta(0);
+        }
+
+        private void Update()
+        {
+            bool navegando = NavegandoPerguntas();
+
+            // As setas servem aos slides durante a fala e às perguntas depois dela; quem
+            // manda é a tela que está no ar. Se o teclado já estava desligado no Inspector,
+            // continua desligado.
+            if (slides != null)
+            {
+                slides.AtalhosDeTeclado = atalhosDosSlides && !navegando;
+            }
+
+            if (!navegando)
+            {
+                return;
+            }
+
+            if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.PageDown))
+            {
+                SelecionarPergunta(perguntaSelecionada + 1);
+            }
+            else if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.PageUp))
+            {
+                SelecionarPergunta(perguntaSelecionada - 1);
+            }
         }
 
         private void AoFalhar(PodiumErrorKind kind, string mensagem)
@@ -385,21 +422,13 @@ namespace Podium.Session
                 {
                     GUILayout.Label("Nenhuma pergunta passou na verificação contra os slides.", texto);
                 }
+                else if (verTodasAsPerguntas)
+                {
+                    DesenharListaDePerguntas(f);
+                }
                 else
                 {
-                    for (int i = 0; i < f.questions.Length; i++)
-                    {
-                        GeneratedQuestion q = f.questions[i];
-                        GUILayout.Label((i + 1) + ". " + q.question, destaque);
-                        // A âncora é exibida junto da pergunta, não escondida: é o que
-                        // distingue banca ancorada de alucinação.
-                        GUILayout.Label("Slide " + q.slide_origem + " — \"" + q.trecho_literal + "\"", texto);
-                        if (!string.IsNullOrEmpty(q.rationale))
-                        {
-                            GUILayout.Label("Por quê: " + q.rationale, texto);
-                        }
-                        GUILayout.Space(6f);
-                    }
+                    DesenharNavegadorDePerguntas(f);
                 }
 
                 if (!string.IsNullOrEmpty(f.content_analysis))
@@ -445,6 +474,129 @@ namespace Podium.Session
             {
                 voltarAoLobby = true;
             }
+        }
+
+        /// <summary>
+        /// Uma pergunta por vez, com a âncora embaixo e a tela da sala no slide de origem.
+        /// Ler as perguntas em bloco é o modo de conferir; ensaiar a defesa é responder uma,
+        /// olhando para o slide que a gerou, e só então ver a seguinte.
+        /// </summary>
+        private void DesenharNavegadorDePerguntas(FeedbackResponse f)
+        {
+            perguntaSelecionada = Mathf.Clamp(perguntaSelecionada, 0, f.questions.Length - 1);
+            GeneratedQuestion q = f.questions[perguntaSelecionada];
+
+            GUILayout.BeginHorizontal();
+
+            GUI.enabled = perguntaSelecionada > 0;
+            if (GUILayout.Button("Pergunta anterior", GUILayout.Height(32f)))
+            {
+                SelecionarPergunta(perguntaSelecionada - 1);
+            }
+
+            GUI.enabled = perguntaSelecionada < f.questions.Length - 1;
+            if (GUILayout.Button("Próxima pergunta", GUILayout.Height(32f)))
+            {
+                SelecionarPergunta(perguntaSelecionada + 1);
+            }
+
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+
+            GUILayout.Label("Pergunta " + (perguntaSelecionada + 1) + " de " + f.questions.Length +
+                            " · teclado: setas ou PageUp/PageDown.", texto);
+            GUILayout.Space(4f);
+
+            GUILayout.Label(q.question, destaque);
+
+            // A âncora fica junto da pergunta, nunca escondida: é o que distingue banca
+            // ancorada no material de alucinação.
+            GUILayout.Label("Slide " + q.slide_origem + " — \"" + q.trecho_literal + "\"", texto);
+
+            if (!string.IsNullOrEmpty(q.rationale))
+            {
+                GUILayout.Label("Por quê: " + q.rationale, texto);
+            }
+
+            if (slides != null && slides.TemSlides)
+            {
+                GUILayout.Label("A tela da sala está no slide " + (slides.IndiceAtual + 1) + ".", texto);
+            }
+
+            GUILayout.Space(4f);
+            if (GUILayout.Button("Ver todas as perguntas", GUILayout.Height(28f)))
+            {
+                verTodasAsPerguntas = true;
+            }
+        }
+
+        private void DesenharListaDePerguntas(FeedbackResponse f)
+        {
+            for (int i = 0; i < f.questions.Length; i++)
+            {
+                GeneratedQuestion q = f.questions[i];
+                GUILayout.Label((i + 1) + ". " + q.question, destaque);
+                GUILayout.Label("Slide " + q.slide_origem + " — \"" + q.trecho_literal + "\"", texto);
+                if (!string.IsNullOrEmpty(q.rationale))
+                {
+                    GUILayout.Label("Por quê: " + q.rationale, texto);
+                }
+
+                if (GUILayout.Button("Abrir esta pergunta", GUILayout.Height(24f)))
+                {
+                    verTodasAsPerguntas = false;
+                    SelecionarPergunta(i);
+                }
+
+                GUILayout.Space(6f);
+            }
+        }
+
+        private void SelecionarPergunta(int indice)
+        {
+            if (feedback == null || feedback.questions == null || feedback.questions.Length == 0)
+            {
+                return;
+            }
+
+            perguntaSelecionada = Mathf.Clamp(indice, 0, feedback.questions.Length - 1);
+            LevarTelaAoSlideDaPergunta();
+        }
+
+        /// <summary>
+        /// O slide_origem é a numeração do arquivo que a banca leu, e as imagens da parede
+        /// são a exportação desse mesmo arquivo: o número 7 do backend é o sétimo PNG. Se a
+        /// pasta de imagens for de outro material, este pulo mostra isso na hora.
+        /// </summary>
+        private void LevarTelaAoSlideDaPergunta()
+        {
+            if (slides == null || !slides.TemSlides || feedback == null || feedback.questions == null)
+            {
+                return;
+            }
+
+            if (perguntaSelecionada < 0 || perguntaSelecionada >= feedback.questions.Length)
+            {
+                return;
+            }
+
+            int numero = feedback.questions[perguntaSelecionada].slide_origem;
+            if (numero >= 1)
+            {
+                slides.Ir(numero - 1);
+            }
+        }
+
+        /// <summary>Verdadeiro enquanto o painel está com o navegador de perguntas no ar.</summary>
+        private bool NavegandoPerguntas()
+        {
+            return !voltarAoLobby &&
+                   !verTodasAsPerguntas &&
+                   session != null &&
+                   session.State == PodiumSessionState.Completed &&
+                   feedback != null &&
+                   feedback.questions != null &&
+                   feedback.questions.Length > 0;
         }
 
         private void PrepararEstilos()

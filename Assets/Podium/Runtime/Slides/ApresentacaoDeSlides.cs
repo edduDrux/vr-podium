@@ -78,6 +78,16 @@ namespace Podium.Slides
         }
 
         /// <summary>
+        /// Desligável porque as mesmas setas navegam as perguntas da banca depois da
+        /// análise: duas coisas andando com a mesma tecla é surpresa, não atalho.
+        /// </summary>
+        public bool AtalhosDeTeclado
+        {
+            get { return atalhosDeTeclado; }
+            set { atalhosDeTeclado = value; }
+        }
+
+        /// <summary>
         /// Aponta a sala para as imagens da apresentação. Recebe o mesmo caminho que vai no
         /// /init, e não a pasta, para que a tela e a banca nunca fiquem em arquivos
         /// diferentes por descuido de configuração.

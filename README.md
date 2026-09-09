@@ -98,6 +98,24 @@ apresenta, que assim não precisa dar as costas para a banca para saber onde est
 Só o slide atual e os dois vizinhos ficam em memória: um deck de 40 páginas carregado
 inteiro passaria de 300 MB de textura.
 
+### As perguntas da banca, uma por vez
+
+Terminada a análise, o painel abre no **navegador de perguntas**: uma pergunta em
+destaque, a âncora dela logo abaixo (slide de origem e trecho literal) e o porquê da
+banca. **Pergunta anterior** e **Próxima pergunta**, ou as mesmas setas do teclado,
+andam pela lista.
+
+Trocar de pergunta leva a tela da sala para o `slide_origem` daquela pergunta — a
+numeração do backend é a do arquivo que ele leu, e as imagens são a exportação desse
+mesmo arquivo. Responder olhando para o slide que gerou a pergunta é o ensaio que
+interessa; de quebra, se a pasta de imagens for de outro material, o descompasso aparece
+na primeira troca.
+
+**Ver todas as perguntas** volta à lista corrida para conferir tudo de uma vez, e cada
+item dela tem **Abrir esta pergunta** para voltar ao modo de uma por vez. Enquanto o
+navegador está no ar as setas pertencem às perguntas, não aos slides: duas coisas na
+mesma tecla seria surpresa, não atalho.
+
 Uma persona com `avatarPrefab` preenchido é instanciada no seu `seatIndex`; sem prefab,
 entra uma cápsula colorida. É esse o ponto de encaixe dos avatares do TCC III.
 
