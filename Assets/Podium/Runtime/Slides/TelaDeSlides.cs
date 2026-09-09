@@ -74,7 +74,16 @@ namespace Podium.Slides
 
             if (material != null)
             {
-                Destroy(material);
+                // DestroyImmediate fora do Play: a pré-visualização do Editor monta e
+                // derruba a sala sem nunca entrar em modo de execução.
+                if (Application.isPlaying)
+                {
+                    Destroy(material);
+                }
+                else
+                {
+                    DestroyImmediate(material);
+                }
             }
         }
 

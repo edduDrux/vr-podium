@@ -144,7 +144,7 @@ namespace Podium.Slides
 
             foreach (KeyValuePair<int, Texture2D> par in cache)
             {
-                Destroy(par.Value);
+                Apagar(par.Value);
             }
 
             cache.Clear();
@@ -182,7 +182,24 @@ namespace Podium.Slides
             if (cache.TryGetValue(indice, out pronta))
             {
                 Exibir(pronta);
-                PrepararVizinhos();
+
+                if (Application.isPlaying)
+                {
+                    PrepararVizinhos();
+                }
+
+                return;
+            }
+
+            // Fora do Play não existe corrotina: a pré-visualização do Editor lê o arquivo
+            // de uma vez. É um slide só, e ninguém está apresentando.
+            if (!Application.isPlaying)
+            {
+                if (CarregarDeUmaVez(indice))
+                {
+                    Exibir(cache[indice]);
+                }
+
                 return;
             }
 
@@ -336,6 +353,44 @@ namespace Podium.Slides
                 }
 
                 cache[indice] = DownloadHandlerTexture.GetContent(requisicao);
+            }
+        }
+
+        private bool CarregarDeUmaVez(int indice)
+        {
+            try
+            {
+                Texture2D textura = new Texture2D(2, 2);
+                if (textura.LoadImage(File.ReadAllBytes(arquivos[indice])))
+                {
+                    cache[indice] = textura;
+                    return true;
+                }
+
+                Apagar(textura);
+            }
+            catch (IOException e)
+            {
+                Debug.LogWarning("[Podium] Slide " + (indice + 1) + " não carregou: " + e.Message);
+            }
+
+            return false;
+        }
+
+        private static void Apagar(UnityEngine.Object alvo)
+        {
+            if (alvo == null)
+            {
+                return;
+            }
+
+            if (Application.isPlaying)
+            {
+                Destroy(alvo);
+            }
+            else
+            {
+                DestroyImmediate(alvo);
             }
         }
 

@@ -90,9 +90,24 @@ namespace Podium.Scenarios
         private readonly Dictionary<Color, Material> materiais = new Dictionary<Color, Material>();
         private Shader shaderPadrao;
 
-        // Tudo é montado em espaço local: apresentador na origem, olhando para +Z.
         private void Start()
         {
+            Montar(false);
+        }
+
+        /// <summary>
+        /// Monta a sala. Tudo em espaço local: apresentador na origem, olhando para +Z.
+        /// <para>
+        /// Com <paramref name="previa"/>, o Editor chama isto fora do Play para que a sala
+        /// seja visível na Scene view: aí nada é salvo na cena (<c>HideFlags.DontSave</c>) e
+        /// a câmera fica onde está. Sem isso, quem abre a cena vê três objetos e conclui que
+        /// falta montar o cenário — a sala existe, mas só nasce ao dar Play.
+        /// </para>
+        /// </summary>
+        public void Montar(bool previa)
+        {
+            Limpar();
+
             Vector3 origem = scenario != null ? scenario.spawnPosition : Vector3.zero;
             float yaw = scenario != null ? scenario.spawnYaw : 0f;
             Quaternion frente = Quaternion.Euler(0f, yaw, 0f);
@@ -125,6 +140,12 @@ namespace Podium.Scenarios
             // Só a cenografia entra no batch: os avatares da banca podem se mover.
             StaticBatchingUtility.Combine(sala.gameObject);
 
+            if (previa)
+            {
+                DescartarAoSalvar();
+                return;
+            }
+
             Camera cam = Camera.main;
             if (cam != null)
             {
@@ -133,14 +154,69 @@ namespace Podium.Scenarios
             }
         }
 
+        /// <summary>Derruba a sala montada. Serve ao Play e à pré-visualização do Editor.</summary>
+        public void Limpar()
+        {
+            for (int i = transform.childCount - 1; i >= 0; i--)
+            {
+                Apagar(transform.GetChild(i).gameObject);
+            }
+
+            foreach (Material m in materiais.Values)
+            {
+                Apagar(m);
+            }
+
+            materiais.Clear();
+        }
+
+        /// <summary>
+        /// A sala da pré-visualização não é conteúdo da cena: é desenho descartável. Sem a
+        /// marca, um Ctrl+S depois de pré-visualizar gravaria centenas de primitivos no
+        /// arquivo da cena, e o próximo Play montaria tudo de novo por cima.
+        /// </summary>
+        private void DescartarAoSalvar()
+        {
+            foreach (Transform filho in transform.GetComponentsInChildren<Transform>(true))
+            {
+                if (filho != transform)
+                {
+                    filho.gameObject.hideFlags = HideFlags.DontSave;
+                }
+            }
+
+            foreach (Material m in materiais.Values)
+            {
+                m.hideFlags = HideFlags.DontSave;
+            }
+        }
+
         private void OnDestroy()
         {
             foreach (Material m in materiais.Values)
             {
-                Destroy(m);
+                Apagar(m);
             }
 
             materiais.Clear();
+        }
+
+        /// <summary>Destroy não existe fora do Play; DestroyImmediate não pode ser usado dentro dele.</summary>
+        private static void Apagar(UnityEngine.Object alvo)
+        {
+            if (alvo == null)
+            {
+                return;
+            }
+
+            if (Application.isPlaying)
+            {
+                Destroy(alvo);
+            }
+            else
+            {
+                DestroyImmediate(alvo);
+            }
         }
 
         // ----------------------------------------------------------------- sala
@@ -526,7 +602,7 @@ namespace Podium.Scenarios
             Collider c = go.GetComponent<Collider>();
             if (c != null)
             {
-                Destroy(c);
+                Apagar(c);
             }
         }
     }
