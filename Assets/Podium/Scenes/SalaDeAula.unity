@@ -133,6 +133,7 @@ GameObject:
   - component: {fileID: 100004}
   - component: {fileID: 100005}
   - component: {fileID: 100006}
+  - component: {fileID: 100007}
   m_Layer: 0
   m_Name: Podium
   m_TagString: Untagged
@@ -216,6 +217,7 @@ MonoBehaviour:
   session: {fileID: 100004}
   api: {fileID: 100002}
   recorder: {fileID: 100003}
+  slides: {fileID: 100007}
   scenario: {fileID: 11400000, guid: 95e9b93d4b75a59d40148a1110bafe27, type: 2}
   personas:
   - {fileID: 11400000, guid: 7c04566e4c81bda140c4158748e23143, type: 2}
@@ -239,6 +241,11 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 7c04566e4c81bda140c4158748e23143, type: 2}
   - {fileID: 11400000, guid: d28b7757c51284df912fd659b54637aa, type: 2}
   - {fileID: 11400000, guid: 898e1aae6893dd5c1ddd305b589ebf26, type: 2}
+  slides: {fileID: 100007}
+  larguraDaTela: 3.2
+  alturaDaTela: 1.8
+  alturaDaTelaNaParede: 1.9
+  comMonitorDeRetorno: 1
   distanciaBanca: 4
   espacamentoAssentos: 1.2
   colunasDeMesas: 4
@@ -250,6 +257,27 @@ MonoBehaviour:
   alturaTeto: 3.2
   comTeto: 1
   alturaOlhos: 1.6
+--- !u!114 &100007
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8d5f3c6e1b7a0c9d2e3f4a5b6c7d8e9f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Podium.Runtime::Podium.Slides.ApresentacaoDeSlides
+  sufixoDaPasta: _slides
+  atalhosDeTeclado: 1
+  teclasProximo:
+  - 275
+  - 281
+  - 32
+  teclasAnterior:
+  - 276
+  - 280
 --- !u!1 &302411137
 GameObject:
   m_ObjectHideFlags: 0

@@ -2,6 +2,7 @@ using System.Globalization;
 using Podium.Api;
 using Podium.Audio;
 using Podium.Scenarios;
+using Podium.Slides;
 using UnityEngine;
 
 namespace Podium.Session
@@ -21,6 +22,7 @@ namespace Podium.Session
         [SerializeField] private PodiumSession session;
         [SerializeField] private PodiumApiClient api;
         [SerializeField] private PresentationRecorder recorder;
+        [SerializeField] private ApresentacaoDeSlides slides;
 
         [Header("Conteúdo")]
         [SerializeField] private ScenarioDefinition scenario;
@@ -101,6 +103,18 @@ namespace Podium.Session
             {
                 personaSelecionada = Mathf.Clamp(personaSelecionada, 0, personas.Length - 1);
                 session.Persona = personas[personaSelecionada];
+            }
+        }
+
+        /// <summary>
+        /// A tela da sala usa a exportação em imagens do mesmo arquivo que sobe no /init:
+        /// um caminho só, para que material analisado e material projetado não divirjam.
+        /// </summary>
+        private void CarregarSlides()
+        {
+            if (slides != null)
+            {
+                slides.Carregar(presentationPath);
             }
         }
 
@@ -192,6 +206,7 @@ namespace Podium.Session
                     {
                         session.StartPresentation();
                     }
+                    DesenharSlides();
                     break;
 
                 case PodiumSessionState.Recording:
@@ -258,6 +273,18 @@ namespace Podium.Session
             GUILayout.Label("Apresentação (PDF ou PPTx)", titulo);
             presentationPath = GUILayout.TextField(presentationPath);
 
+            if (slides != null)
+            {
+                // Conferir antes de criar a sessão: descobrir que a pasta de imagens não
+                // existe já com a banca montada custa uma sessão inteira.
+                if (GUILayout.Button("Conferir slides", GUILayout.Height(26f)))
+                {
+                    CarregarSlides();
+                }
+
+                GUILayout.Label(slides.Diagnostico, slides.TemSlides ? texto : destaque);
+            }
+
             GUILayout.Space(8f);
             GUILayout.Label(mensagemApi, apiOk ? texto : destaque);
 
@@ -273,6 +300,7 @@ namespace Podium.Session
                 erro = null;
                 feedback = null;
                 AplicarSelecao();
+                CarregarSlides();
                 session.BeginSession(presentationPath);
             }
             GUI.enabled = true;
@@ -294,6 +322,48 @@ namespace Podium.Session
             {
                 session.FinishPresentation();
             }
+
+            DesenharSlides();
+        }
+
+        /// <summary>
+        /// Comandos de slide. Ficam no painel além do teclado porque no headset não há
+        /// teclado, e este é o lugar onde os botões da mão virão morar.
+        /// </summary>
+        private void DesenharSlides()
+        {
+            if (slides == null)
+            {
+                return;
+            }
+
+            GUILayout.Space(8f);
+
+            if (!slides.TemSlides)
+            {
+                GUILayout.Label("Slides: " + slides.Diagnostico, texto);
+                return;
+            }
+
+            GUILayout.BeginHorizontal();
+
+            GUI.enabled = slides.IndiceAtual > 0;
+            if (GUILayout.Button("Slide anterior", GUILayout.Height(32f)))
+            {
+                slides.Anterior();
+            }
+
+            GUI.enabled = slides.IndiceAtual < slides.Total - 1;
+            if (GUILayout.Button("Próximo slide", GUILayout.Height(32f)))
+            {
+                slides.Proximo();
+            }
+
+            GUI.enabled = true;
+            GUILayout.EndHorizontal();
+
+            GUILayout.Label("Slide " + (slides.IndiceAtual + 1) + " de " + slides.Total +
+                            " · teclado: setas, PageUp/PageDown ou espaço.", texto);
         }
 
         private void DesenharFeedback()

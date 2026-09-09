@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Podium.Slides;
 using UnityEngine;
 
 namespace Podium.Scenarios
@@ -19,6 +20,19 @@ namespace Podium.Scenarios
     {
         [SerializeField] private ScenarioDefinition scenario;
         [SerializeField] private PersonaDefinition[] personas;
+
+        [Header("Projeção")]
+        [Tooltip("Quem carrega as imagens dos slides. Sem isto, a tela fica apagada.")]
+        [SerializeField] private ApresentacaoDeSlides slides;
+
+        [SerializeField] private float larguraDaTela = 3.2f;
+        [SerializeField] private float alturaDaTela = 1.8f;
+
+        [Tooltip("Altura do centro da tela na parede da frente.")]
+        [SerializeField] private float alturaDaTelaNaParede = 1.9f;
+
+        [Tooltip("Monitor de retorno no púlpito: o mesmo slide, virado para quem apresenta.")]
+        [SerializeField] private bool comMonitorDeRetorno = true;
 
         [Header("Banca")]
         [Tooltip("Distância, em metros, do apresentador até a mesa da banca.")]
@@ -91,10 +105,16 @@ namespace Podium.Scenarios
             float zFrente = -2.6f;
             float zFundo = ZDaFileira(Mathf.Max(fileirasDeMesas - 1, 0)) + 1.8f;
 
+            // As telas ficam fora da "Sala" porque mudam de escala a cada slide, para
+            // acompanhar a proporção da imagem — e batch estático congela transform.
+            Transform telas = new GameObject("Telas").transform;
+            telas.SetParent(transform, false);
+            telas.SetPositionAndRotation(origem, frente);
+
             MontarCasca(sala, meiaLargura, zFrente, zFundo);
-            MontarFrente(sala, meiaLargura, zFrente);
+            MontarFrente(sala, telas, meiaLargura, zFrente);
             MontarLaterais(sala, meiaLargura, zFrente, zFundo);
-            MontarPulpito(sala);
+            MontarPulpito(sala, telas);
             MontarPlateia(sala);
 
             Transform banca = new GameObject("Banca").transform;
@@ -210,8 +230,8 @@ namespace Podium.Scenarios
             }
         }
 
-        // Parede que o apresentador tem às costas: quadro, calha e relógio.
-        private void MontarFrente(Transform sala, float meiaLargura, float zFrente)
+        // Parede que o apresentador tem às costas: quadro, tela de projeção, calha e relógio.
+        private void MontarFrente(Transform sala, Transform telas, float meiaLargura, float zFrente)
         {
             float larguraQuadro = Mathf.Min(5f, meiaLargura * 2f - 1.6f);
             float zQuadro = zFrente + 0.06f;
@@ -228,6 +248,22 @@ namespace Podium.Scenarios
                                        Quaternion.Euler(90f, 0f, 0f),
                                        new Vector3(0.34f, 0.03f, 0.34f), sala, CorQuadro);
             SemColisor(relogio);
+
+            // Tela de projeção à frente do quadro, como a de sala de aula que desce por cima
+            // dele. A moldura fica no tamanho cheio mesmo quando o slide é mais estreito:
+            // é ela que dá a borda escura de projetor.
+            float zTela = zQuadro + 0.08f;
+            GameObject moldura = Criar(PrimitiveType.Cube, "Moldura da tela",
+                                       new Vector3(0f, alturaDaTelaNaParede, zTela),
+                                       new Vector3(larguraDaTela + 0.14f, alturaDaTela + 0.14f, 0.05f),
+                                       sala, CorMetal);
+            SemColisor(moldura);
+
+            // Girada 180°: o Quad tem a face visível apontando para o próprio -Z, e quem
+            // assiste está do lado oposto da parede.
+            CriarTela(telas, "Tela de projeção",
+                      new Vector3(0f, alturaDaTelaNaParede, zTela + 0.04f),
+                      Quaternion.Euler(0f, 180f, 0f), larguraDaTela, alturaDaTela);
         }
 
         // Janelas de um lado, porta do outro.
@@ -264,18 +300,49 @@ namespace Podium.Scenarios
             SemColisor(macaneta);
         }
 
-        private void MontarPulpito(Transform sala)
+        private void MontarPulpito(Transform sala, Transform telas)
         {
-            Transform pulpito = Filho(sala, "Púlpito", new Vector3(0f, 0f, 0.65f));
+            Vector3 posicaoDoPulpito = new Vector3(0f, 0f, 0.65f);
+            Transform pulpito = Filho(sala, "Púlpito", posicaoDoPulpito);
 
             Criar(PrimitiveType.Cube, "Corpo", new Vector3(0f, 0.55f, 0f),
                   new Vector3(0.62f, 1.1f, 0.42f), pulpito, CorMadeira);
             Criar(PrimitiveType.Cube, "Tampo", new Vector3(0f, 1.13f, 0f),
                   new Vector3(0.76f, 0.06f, 0.54f), pulpito, CorMadeiraClara);
             GameObject anotacoes = Criar(PrimitiveType.Cube, "Anotações",
-                                         new Vector3(0f, 1.17f, 0.02f),
+                                         new Vector3(0.22f, 1.17f, 0.02f),
                                          new Vector3(0.24f, 0.02f, 0.32f), pulpito, CorQuadro);
             SemColisor(anotacoes);
+
+            if (!comMonitorDeRetorno)
+            {
+                return;
+            }
+
+            // O monitor repete o slide virado para quem apresenta: a tela grande está às
+            // costas dele, e virar para trás para saber em que slide está quebra a
+            // apresentação — no ensaio e na defesa.
+            GameObject pe = Criar(PrimitiveType.Cube, "Pé do monitor",
+                                  new Vector3(-0.14f, 1.21f, -0.06f),
+                                  new Vector3(0.05f, 0.1f, 0.05f), pulpito, CorMetal);
+            SemColisor(pe);
+
+            const float larguraDoMonitor = 0.38f;
+            const float alturaDoMonitor = 0.22f;
+
+            GameObject molduraDoMonitor = Criar(PrimitiveType.Cube, "Moldura do monitor",
+                                                new Vector3(-0.14f, 1.37f, -0.05f),
+                                                Quaternion.Euler(14f, 0f, 0f),
+                                                new Vector3(larguraDoMonitor + 0.03f,
+                                                            alturaDoMonitor + 0.03f, 0.02f),
+                                                pulpito, CorMetal);
+            SemColisor(molduraDoMonitor);
+
+            // Sem giro em Y: a face visível do Quad já aponta para -Z, que é onde está quem
+            // apresenta. A inclinação é a de um monitor de mesa.
+            CriarTela(telas, "Monitor de retorno",
+                      posicaoDoPulpito + new Vector3(-0.14f, 1.37f, -0.065f),
+                      Quaternion.Euler(14f, 0f, 0f), larguraDoMonitor, alturaDoMonitor);
         }
 
         // -------------------------------------------------------------- pessoas
@@ -389,6 +456,25 @@ namespace Podium.Scenarios
             t.SetParent(pai, false);
             t.localPosition = posicaoLocal;
             return t;
+        }
+
+        /// <summary>
+        /// Superfície que mostra o slide atual. Nasce apagada e só acende quando a
+        /// <see cref="ApresentacaoDeSlides"/> encontra as imagens.
+        /// </summary>
+        private void CriarTela(Transform pai, string nome, Vector3 posicao, Quaternion rotacao,
+                               float largura, float altura)
+        {
+            GameObject go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            go.name = nome;
+            go.transform.SetParent(pai, false);
+            go.transform.localPosition = posicao;
+            go.transform.localRotation = rotacao;
+            go.transform.localScale = new Vector3(largura, altura, 1f);
+            SemColisor(go);
+
+            TelaDeSlides tela = go.AddComponent<TelaDeSlides>();
+            tela.Conectar(slides, largura, altura);
         }
 
         private GameObject Criar(PrimitiveType tipo, string nome, Vector3 posicao,

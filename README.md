@@ -71,8 +71,32 @@ O que está na cena e onde mexer:
 
 | Objeto | Componentes | Para quê |
 |---|---|---|
-| `Podium` | `PodiumApiClient`, `PresentationRecorder`, `PodiumSession`, `SalaDeAulaController`, `SalaDeAulaCenografia` | O fluxo inteiro. O `Controller` desenha o painel (IMGUI, sem pacote). A `Cenografia` cria chão, púlpito, mesa e um lugar por persona em runtime. |
+| `Podium` | `PodiumApiClient`, `PresentationRecorder`, `PodiumSession`, `SalaDeAulaController`, `SalaDeAulaCenografia`, `ApresentacaoDeSlides` | O fluxo inteiro. O `Controller` desenha o painel (IMGUI, sem pacote). A `Cenografia` cria chão, púlpito, mesa, tela e um lugar por persona em runtime. A `ApresentacaoDeSlides` acha as imagens e guarda o slide no ar. |
 | `Main Camera` | Camera | Reposicionada no `spawnPosition` do cenário, a 1,6 m de altura. |
+
+### Os slides na parede
+
+O runtime do Unity não abre PDF nem PPTx — não existe decodificador desses formatos na
+engine. Então a sala projeta uma **exportação em imagens** do mesmo arquivo que sobe no
+`/init`: para `tcc_slides.pdf`, a pasta irmã `tcc_slides_slides/`, com um PNG ou JPG por
+slide (`slide1.png`, `slide2.png`, …, em ordem natural — `slide10` depois de `slide2`).
+Se o caminho da apresentação já apontar para uma pasta, ela é usada direto.
+
+No PowerPoint: **Arquivo > Exportar > Alterar Tipo de Arquivo > PNG > Todos os Slides**.
+Com o backend no ar, o PyMuPDF do container também resolve:
+
+```bash
+docker compose -f C:/Users/eduar/projetos/podium/docker-compose.yml exec api python -c "import fitz, pathlib; d=pathlib.Path('/app/storage/_fixtures'); (d/'tcc_slides_slides').mkdir(exist_ok=True); doc=fitz.open(d/'tcc_slides.pdf'); [doc[i].get_pixmap(dpi=150).save(d/'tcc_slides_slides'/f'slide{i+1}.png') for i in range(len(doc))]"
+```
+
+O botão **Conferir slides** no lobby diz quantas imagens foram encontradas antes de você
+criar a sessão. Durante a apresentação, passe de slide pelas setas do teclado, por
+PageUp/PageDown, pelo espaço ou pelos botões do painel. A tela grande fica na parede da
+frente, para a banca; o **monitor de retorno** no púlpito repete o slide virado para quem
+apresenta, que assim não precisa dar as costas para a banca para saber onde está.
+
+Só o slide atual e os dois vizinhos ficam em memória: um deck de 40 páginas carregado
+inteiro passaria de 300 MB de textura.
 
 Uma persona com `avatarPrefab` preenchido é instanciada no seu `seatIndex`; sem prefab,
 entra uma cápsula colorida. É esse o ponto de encaixe dos avatares do TCC III.
