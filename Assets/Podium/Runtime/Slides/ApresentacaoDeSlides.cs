@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading;
+using Podium.Api;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -54,6 +55,13 @@ namespace Podium.Slides
         private int indiceAtual = -1;
         private string diagnostico = "Nenhuma apresentação carregada.";
 
+        // Origem remota: no headset não há PowerPoint nem Docker para converter, mas o
+        // backend já tem o arquivo desde o /init e sabe desenhar as páginas.
+        private PodiumApiClient apiDosSlides;
+        private string sessaoDosSlides;
+        private int larguraRemota;
+        private int totalRemoto;
+
         // Escritos pela thread da conversão, lidos pela corrotina que a espera.
         private volatile bool conversaoTerminou;
         private volatile string erroDaConversao;
@@ -63,7 +71,13 @@ namespace Podium.Slides
 
         public int Total
         {
-            get { return arquivos.Count; }
+            get { return totalRemoto > 0 ? totalRemoto : arquivos.Count; }
+        }
+
+        /// <summary>As imagens vêm do backend, e não de uma pasta local.</summary>
+        public bool VemDoServidor
+        {
+            get { return totalRemoto > 0; }
         }
 
         /// <summary>Base zero. Vale -1 enquanto nenhum slide foi exibido.</summary>
@@ -74,7 +88,7 @@ namespace Podium.Slides
 
         public bool TemSlides
         {
-            get { return arquivos.Count > 0; }
+            get { return Total > 0; }
         }
 
         /// <summary>Frase pronta para a interface: quantos slides, de onde, ou o que faltou.</summary>
@@ -132,6 +146,57 @@ namespace Podium.Slides
                           "\": nesta plataforma a conversão não roda; exporte os slides como " +
                           "PNG na pasta \"" + PastaEsperada(caminhoDaApresentacao) + "\".";
             Exibir(null);
+        }
+
+        /// <summary>
+        /// Projeta as páginas que o próprio backend desenha, em vez de imagens em disco.
+        /// <para>
+        /// É o caminho do headset: lá não há PowerPoint nem Docker para converter, e
+        /// embutir um rasterizador de PDF no app seria dependência nativa só para pintar
+        /// uma parede. O arquivo já está no servidor desde o /init, e quem desenha é o
+        /// mesmo PyMuPDF que extraiu o texto — a página 7 da parede é a página 7 da âncora.
+        /// </para>
+        /// </summary>
+        public IEnumerator CarregarDoServidor(PodiumApiClient api, string sessionId)
+        {
+            Limpar();
+
+            if (api == null || string.IsNullOrEmpty(sessionId))
+            {
+                diagnostico = "Sem sessão aberta: não dá para pedir os slides ao servidor.";
+                Exibir(null);
+                yield break;
+            }
+
+            diagnostico = "Pedindo os slides ao servidor...";
+            Exibir(null);
+
+            PodiumResult<SlidesInfoResponse> r = null;
+            yield return api.GetSlidesInfo(sessionId, x => r = x);
+
+            if (!r.Ok)
+            {
+                diagnostico = "O servidor não informou os slides: " + r.Message;
+                Exibir(null);
+                yield break;
+            }
+
+            if (!r.Value.renderizavel || r.Value.total <= 0)
+            {
+                diagnostico = string.IsNullOrEmpty(r.Value.motivo)
+                    ? "O servidor não tem imagens desta apresentação."
+                    : r.Value.motivo;
+                Exibir(null);
+                yield break;
+            }
+
+            apiDosSlides = api;
+            sessaoDosSlides = sessionId;
+            totalRemoto = r.Value.total;
+            larguraRemota = r.Value.largura_padrao > 0 ? r.Value.largura_padrao : 1600;
+
+            diagnostico = totalRemoto + " slides servidos pelo backend";
+            Ir(0);
         }
 
         private void UsarPasta(string pasta, string origem)
@@ -249,6 +314,10 @@ namespace Podium.Slides
             cache.Clear();
             arquivos.Clear();
             indiceAtual = -1;
+
+            apiDosSlides = null;
+            sessaoDosSlides = null;
+            totalRemoto = 0;
         }
 
         public void Proximo()
@@ -264,12 +333,12 @@ namespace Podium.Slides
         /// <summary>Vai para um slide (base zero). Fora da faixa, para na borda.</summary>
         public void Ir(int indice)
         {
-            if (arquivos.Count == 0)
+            if (Total == 0)
             {
                 return;
             }
 
-            indice = Mathf.Clamp(indice, 0, arquivos.Count - 1);
+            indice = Mathf.Clamp(indice, 0, Total - 1);
             if (indice == indiceAtual && cache.ContainsKey(indice))
             {
                 return;
@@ -368,7 +437,7 @@ namespace Podium.Slides
 
         private void Update()
         {
-            if (!atalhosDeTeclado || arquivos.Count == 0)
+            if (!atalhosDeTeclado || Total == 0)
             {
                 return;
             }
@@ -428,13 +497,34 @@ namespace Podium.Slides
 
         private IEnumerator CarregarArquivo(int indice)
         {
-            if (indice < 0 || indice >= arquivos.Count ||
+            if (indice < 0 || indice >= Total ||
                 cache.ContainsKey(indice) || carregando.Contains(indice))
             {
                 yield break;
             }
 
             carregando.Add(indice);
+
+            if (VemDoServidor)
+            {
+                PodiumResult<Texture2D> resposta = null;
+                yield return apiDosSlides.GetSlideTexture(
+                    sessaoDosSlides, indice + 1, larguraRemota, x => resposta = x);
+
+                carregando.Remove(indice);
+
+                if (resposta.Ok && resposta.Value != null)
+                {
+                    cache[indice] = resposta.Value;
+                }
+                else
+                {
+                    Debug.LogWarning("[Podium] Slide " + (indice + 1) + " não veio do " +
+                                     "servidor: " + resposta.Message);
+                }
+
+                yield break;
+            }
 
             // UnityWebRequest, e não File.ReadAllBytes com LoadImage: decodifica fora da
             // thread principal e devolve a textura não-legível, que ocupa metade da memória.
@@ -506,7 +596,7 @@ namespace Podium.Slides
         {
             DescartarDistantes();
 
-            if (indiceAtual + 1 < arquivos.Count)
+            if (indiceAtual + 1 < Total)
             {
                 StartCoroutine(CarregarArquivo(indiceAtual + 1));
             }
