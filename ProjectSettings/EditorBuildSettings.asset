@@ -11,4 +11,6 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Podium/Samples/SmokeTest.unity
     guid: 5a6592aeb2f05ae4f8e50c81bd4a498f
-  m_configObjects: {}
+  m_configObjects:
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: ca47c42fae2209c46bd326a77e5cd2d5, type: 2}
+    com.unity.xr.openxr.settings4: {fileID: 11400000, guid: 695026615f1ea3542b683f03f0566819, type: 2}
