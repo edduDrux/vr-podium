@@ -134,6 +134,10 @@ GameObject:
   - component: {fileID: 100005}
   - component: {fileID: 100006}
   - component: {fileID: 100007}
+  - component: {fileID: 100011}
+  - component: {fileID: 100010}
+  - component: {fileID: 100009}
+  - component: {fileID: 100008}
   m_Layer: 0
   m_Name: Podium
   m_TagString: Untagged
@@ -198,6 +202,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Podium.Runtime::Podium.Session.PodiumSession
   api: {fileID: 100002}
   recorder: {fileID: 100003}
+  transcritor: {fileID: 100010}
   scenario: {fileID: 11400000, guid: 95e9b93d4b75a59d40148a1110bafe27, type: 2}
   persona: {fileID: 11400000, guid: 7c04566e4c81bda140c4158748e23143, type: 2}
   chunkUploadAttempts: 3
@@ -271,13 +276,92 @@ MonoBehaviour:
   m_EditorClassIdentifier: Podium.Runtime::Podium.Slides.ApresentacaoDeSlides
   sufixoDaPasta: _slides
   atalhosDeTeclado: 1
-  teclasProximo:
-  - 275
-  - 281
-  - 32
-  teclasAnterior:
-  - 276
-  - 280
+  teclasProximo: 130100001901000020000000
+  teclasAnterior: 1401000018010000
+--- !u!114 &100008
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8ddab69ff102283468af02921a638e36, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Podium.Runtime::Podium.XR.PainelEmVR
+  controlador: {fileID: 100005}
+  session: {fileID: 100004}
+  recorder: {fileID: 100003}
+  slides: {fileID: 100007}
+  rig: {fileID: 100009}
+  posicao: {x: -0.85, y: 1.35, z: 0.75}
+  larguraEmMetros: 1.1
+  alturaEmMetros: 0.78
+  anguloDeVirada: 28
+--- !u!114 &100009
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 9b249c1fb2bac9e498a10a1420c47488, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Podium.Runtime::Podium.XR.PodiumXRRig
+  rigPrefab: {fileID: 1717954561962503725, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
+  scenario: {fileID: 11400000, guid: 95e9b93d4b75a59d40148a1110bafe27, type: 2}
+  usarHeadset: 1
+--- !u!114 &100010
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2b2f05b3f606cda4e950d7a777299c43, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Podium.Runtime::Podium.Audio.TranscritorLocal
+  whisper: {fileID: 100011}
+  ligado: 1
+  motor: whisper.cpp
+--- !u!114 &100011
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d9370225a2ca94276b870d5f87b0db55, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: com.whisper.unity::Whisper.WhisperManager
+  logLevel: 1
+  modelPath: Whisper/ggml-base-q5_1.bin
+  isModelPathInStreamingAssets: 1
+  initOnAwake: 1
+  useGpu: 0
+  flashAttention: 0
+  language: pt
+  translateToEnglish: 0
+  strategy: 0
+  noContext: 1
+  singleSegment: 0
+  enableTokens: 0
+  initialPrompt: 
+  stepSec: 3
+  keepSec: 0.2
+  lengthSec: 10
+  updatePrompt: 1
+  dropOldBuffer: 0
+  useVad: 1
+  tokensTimestamps: 0
+  audioCtx: 0
 --- !u!1 &302411137
 GameObject:
   m_ObjectHideFlags: 0

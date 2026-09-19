@@ -38,3 +38,8 @@ sysinfo.txt
 crashlytics-build.properties
 Thumbs.db
 .DS_Store
+
+# Modelo de transcrição local (whisper.cpp): dezenas de MB de binário, baixado
+# uma vez por máquina com Podium > Baixar o modelo de transcrição.
+[Aa]ssets/StreamingAssets/Whisper/
+[Aa]ssets/StreamingAssets/Whisper.meta
