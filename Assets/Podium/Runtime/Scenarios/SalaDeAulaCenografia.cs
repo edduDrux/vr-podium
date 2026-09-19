@@ -140,9 +140,19 @@ namespace Podium.Scenarios
             // Só a cenografia entra no batch: os avatares da banca podem se mover.
             StaticBatchingUtility.Combine(sala.gameObject);
 
+            AjustarAmbiente();
+
             if (previa)
             {
                 DescartarAoSalvar();
+                return;
+            }
+
+            // Num headset a altura dos olhos vem do tracking, e o rig já nasceu no lugar
+            // certo: reposicionar a câmera aqui a arrancaria de dentro do XR Origin e
+            // deixaria a imagem parada no meio da sala.
+            if (FindAnyObjectByType<Unity.XR.CoreUtils.XROrigin>() != null)
+            {
                 return;
             }
 
@@ -152,6 +162,18 @@ namespace Podium.Scenarios
                 cam.transform.position = origem + Vector3.up * alturaOlhos;
                 cam.transform.rotation = frente;
             }
+        }
+
+        /// <summary>
+        /// Luz ambiente e sombra da sala. Sem isto, o que o teto tapa fica preto puro: os
+        /// pés das mesas somem no chão e a sala parece um recorte, não um lugar.
+        /// </summary>
+        private void AjustarAmbiente()
+        {
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = new Color(0.42f, 0.45f, 0.50f);
+            RenderSettings.ambientEquatorColor = new Color(0.33f, 0.33f, 0.34f);
+            RenderSettings.ambientGroundColor = new Color(0.19f, 0.18f, 0.17f);
         }
 
         /// <summary>Derruba a sala montada. Serve ao Play e à pré-visualização do Editor.</summary>
@@ -592,8 +614,72 @@ namespace Podium.Scenarios
             }
 
             Material material = new Material(shaderPadrao) { color = cor };
+            Acabar(material, cor);
             materiais[cor] = material;
             return material;
+        }
+
+        /// <summary>
+        /// Dá a cada cor o acabamento da superfície que ela representa.
+        /// <para>
+        /// Tudo com o mesmo brilho é o que faz uma sala de primitivos parecer maquete de
+        /// papel: metal, verniz de mesa e parede pintada reagem à luz de formas diferentes,
+        /// e é essa diferença — não o número de polígonos — que o olho lê como material.
+        /// Custa zero em desempenho, o que importa num Quest.
+        /// </para>
+        /// </summary>
+        private static void Acabar(Material material, Color cor)
+        {
+            float suavidade = 0.08f;
+            float metalico = 0f;
+
+            if (cor == CorMetal)
+            {
+                suavidade = 0.72f;
+                metalico = 0.85f;
+            }
+            else if (cor == CorVidro)
+            {
+                suavidade = 0.94f;
+                metalico = 0.1f;
+            }
+            else if (cor == CorMadeiraClara || cor == CorMadeira)
+            {
+                // Verniz de tampo de mesa: reflexo largo e fraco.
+                suavidade = 0.34f;
+            }
+            else if (cor == CorQuadro)
+            {
+                suavidade = 0.25f;
+            }
+            else if (cor == CorAssento)
+            {
+                suavidade = 0.18f;
+            }
+
+            if (material.HasProperty("_Smoothness"))
+            {
+                material.SetFloat("_Smoothness", suavidade);
+            }
+            else if (material.HasProperty("_Glossiness"))
+            {
+                material.SetFloat("_Glossiness", suavidade);
+            }
+
+            if (material.HasProperty("_Metallic"))
+            {
+                material.SetFloat("_Metallic", metalico);
+            }
+
+            // A luminária precisa parecer acesa mesmo vista de baixo, onde nenhuma luz da
+            // sala bate nela.
+            if (cor == CorLuminaria && material.HasProperty("_EmissionColor"))
+            {
+                material.EnableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", cor * 1.6f);
+                material.globalIlluminationFlags =
+                    MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            }
         }
 
         // Enfeite não precisa de física; piso, paredes e móveis continuam colidindo.
