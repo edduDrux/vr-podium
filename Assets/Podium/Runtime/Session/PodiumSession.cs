@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Podium.Api;
 using Podium.Audio;
 using Podium.Scenarios;
@@ -35,6 +36,11 @@ namespace Podium.Session
         [Header("Dependências")]
         [SerializeField] private PodiumApiClient api;
         [SerializeField] private PresentationRecorder recorder;
+
+        [Tooltip("Opcional. Com ele, a fala é transcrita no próprio aparelho enquanto " +
+                 "acontece e o /analyze pula o STT do servidor. Sem ele, o servidor " +
+                 "transcreve como antes.")]
+        [SerializeField] private TranscritorLocal transcritor;
 
         [Header("Sessão")]
         [SerializeField] private ScenarioDefinition scenario;
@@ -76,6 +82,26 @@ namespace Podium.Session
         public string SessionId { get; private set; }
         public PodiumSessionState State { get; private set; }
 
+        /// <summary>
+        /// A transcrição desta sessão foi feita aqui e aceita pela API — ou seja, o STT do
+        /// servidor não vai rodar. A tela diz isso porque muda a expectativa de espera.
+        /// </summary>
+        public bool TranscricaoEnviada { get; private set; }
+
+        /// <summary>Quem transcreve esta sessão, em uma frase, para o painel.</summary>
+        public string DiagnosticoDaTranscricao
+        {
+            get
+            {
+                if (transcritor == null)
+                {
+                    return "Sem transcritor local; o servidor transcreve a fala.";
+                }
+
+                return transcritor.Diagnostico;
+            }
+        }
+
         private struct ChunkPendente
         {
             public byte[] Wav;
@@ -92,6 +118,7 @@ namespace Podium.Session
             if (recorder != null)
             {
                 recorder.ChunkReady += AoFecharChunk;
+                recorder.BlocoCapturado += AoCapturarBloco;
                 recorder.RecordingStopped += AoPararGravacao;
                 recorder.LimitReached += AoAtingirLimite;
             }
@@ -102,8 +129,22 @@ namespace Podium.Session
             if (recorder != null)
             {
                 recorder.ChunkReady -= AoFecharChunk;
+                recorder.BlocoCapturado -= AoCapturarBloco;
                 recorder.RecordingStopped -= AoPararGravacao;
                 recorder.LimitReached -= AoAtingirLimite;
+            }
+        }
+
+        /// <summary>
+        /// O mesmo áudio que vira WAV alimenta a transcrição local. Um leitor de microfone
+        /// só, dois consumidores: dois <c>Microphone.Start</c> no mesmo dispositivo não
+        /// coexistem.
+        /// </summary>
+        private void AoCapturarBloco(float[] amostras, int canais, int frequencia)
+        {
+            if (transcritor != null)
+            {
+                transcritor.Alimentar(amostras, canais, frequencia);
             }
         }
 
@@ -145,6 +186,33 @@ namespace Podium.Session
             {
                 Debug.LogWarning("[Podium] StartPresentation ignorado: estado " + State);
                 return;
+            }
+
+            StartCoroutine(RotinaComecar());
+        }
+
+        /// <summary>
+        /// Abre a transcrição local ANTES do microfone. Na outra ordem, os primeiros
+        /// segundos de fala seriam gravados no WAV mas não chegariam ao transcritor — e a
+        /// frase de abertura é justamente onde mora o tema da apresentação.
+        /// </summary>
+        private IEnumerator RotinaComecar()
+        {
+            if (transcritor != null && transcritor.Habilitado)
+            {
+                Task preparo = transcritor.Iniciar();
+                while (!preparo.IsCompleted)
+                {
+                    yield return null;
+                }
+
+                if (preparo.IsFaulted)
+                {
+                    // Transcrever aqui é otimização, não requisito: o servidor continua
+                    // sabendo transcrever, então a falha vira aviso e a fala começa.
+                    Debug.LogWarning("[Podium] A transcrição local não abriu: " +
+                                     preparo.Exception.GetBaseException().Message);
+                }
             }
 
             if (recorder.StartRecording())
@@ -314,6 +382,8 @@ namespace Podium.Session
 
             MudarEstado(PodiumSessionState.Analyzing);
 
+            yield return RotinaTranscricao();
+
             PodiumResult<AnalysisAcceptedResponse> aceite = null;
             yield return api.StartAnalysis(SessionId, x => aceite = x);
 
@@ -377,6 +447,66 @@ namespace Podium.Session
             if (FeedbackReady != null)
             {
                 FeedbackReady(feedback.Value);
+            }
+        }
+
+        /// <summary>
+        /// Fecha a transcrição local e a entrega ao backend, para que o /analyze pule o STT.
+        /// <para>
+        /// Roda depois do último chunk e antes do /analyze, nesta ordem por obrigação do
+        /// contrato: o /audio apaga a transcrição da sessão ao receber áudio novo, e o
+        /// /analyze só pula o STT se encontrar o texto já gravado.
+        /// </para>
+        /// <para>
+        /// Nada aqui pode derrubar a sessão. Transcrição é atalho de custo e de tempo; se
+        /// ela não fechar, ou se o PUT falhar, o servidor transcreve como sempre fez e a
+        /// apresentação segue — só mais devagar.
+        /// </para>
+        /// </summary>
+        private IEnumerator RotinaTranscricao()
+        {
+            if (transcritor == null || !transcritor.Habilitado)
+            {
+                yield break;
+            }
+
+            if (AnalysisProgress != null)
+            {
+                AnalysisProgress(SessionStatus.Processing, 0f);
+            }
+
+            Task<string> fechamento = transcritor.Encerrar();
+            while (!fechamento.IsCompleted)
+            {
+                yield return null;
+            }
+
+            if (fechamento.IsFaulted)
+            {
+                Debug.LogWarning("[Podium] A transcrição local falhou ao fechar: " +
+                                 fechamento.Exception.GetBaseException().Message);
+                yield break;
+            }
+
+            string texto = fechamento.Result;
+            if (string.IsNullOrEmpty(texto))
+            {
+                yield break;
+            }
+
+            PodiumResult<TranscriptAcceptedResponse> r = null;
+            yield return api.SubmitTranscript(SessionId, texto, transcritor.Motor, x => r = x);
+
+            if (r.Ok)
+            {
+                TranscricaoEnviada = true;
+                Debug.Log("[Podium] Transcrição local enviada: " + r.Value.word_count +
+                          " palavras. O servidor não vai chamar o STT.");
+            }
+            else
+            {
+                Debug.LogWarning("[Podium] A API recusou a transcrição local (" + r.Message +
+                                 "); o servidor vai transcrever.");
             }
         }
 
