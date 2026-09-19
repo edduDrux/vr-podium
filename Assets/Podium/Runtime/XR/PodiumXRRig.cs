@@ -77,7 +77,13 @@ namespace Podium.XR
             return geral != null && geral.Manager != null && geral.Manager.activeLoader != null;
         }
 
-        private void Start()
+        /// <summary>
+        /// Em <c>Awake</c>, e não em <c>Start</c>, porque o painel de VR e a cenografia
+        /// perguntam em <c>Start</c> se o rig entrou. Entre dois <c>Start</c> do mesmo
+        /// objeto a ordem é indefinida, e a versão errada do sorteio deixaria o headset sem
+        /// painel — ou a câmera arrancada de dentro do rig pela cenografia.
+        /// </summary>
+        private void Awake()
         {
             if (!usarHeadset || !HeadsetAtivo())
             {
