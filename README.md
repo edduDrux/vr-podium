@@ -13,37 +13,66 @@ O backend é a fonte da verdade do contrato. Quando este README e o código do
 
 ## Estado atual
 
-Integração fechada e uma sala jogável. **Existe:** o cliente HTTP completo das cinco
-rotas, gravação de microfone em pedaços, a máquina de estados da sessão, um teste de
-fumaça que roda o fluxo inteiro no Editor e a Sala de Aula com os slides projetados na
-parede e o navegador das perguntas da banca. **Não existe:** avatares, interação XR, TTS.
+Integração fechada, uma sala jogável no PC e o caminho do headset montado. **Existe:** o
+cliente HTTP das oito rotas, gravação de microfone em pedaços, **transcrição da fala no
+próprio aparelho enquanto ela acontece**, a máquina de estados da sessão, um teste de
+fumaça que roda o fluxo inteiro no Editor, a Sala de Aula com os slides na parede e o
+navegador das perguntas da banca, e **OpenXR com o rig e o painel de VR**.
+**Não existe:** avatares e voz da banca (TTS).
 
 A ordem é deliberada — a integração é o risco técnico do projeto, e ela cabe num teste de
 Editor. Modelar sala de aula não é o TCC: a cenografia é de primitivos, e as personas
 esperam por `avatarPrefab`.
+
+### Por que transcrever no aparelho
+
+O STT é a etapa mais cara e mais lenta do backend: **11.019 tokens e 124 s** para uma fala
+de 7,3 min, medidos numa sessão real (`docs/DECISOES.md` §9 do `podium`). Transcrevendo
+aqui, isso acontece **durante** a apresentação, com o whisper.cpp rodando no headset, e o
+texto chega pronto ao `/analyze` — que então pula o STT pelo mesmo caminho que já usava
+para reaproveitar transcrição. Sobra só a geração das perguntas.
+
+O áudio continua subindo: as métricas de forma (ritmo, pausas) derivam do sinal, não do
+texto, e essa independência é um invariante do projeto.
+
+Nada disso é requisito. Sem modelo baixado, sem `WhisperManager` na cena ou com falha no
+meio, a sessão segue e o servidor transcreve como antes — só mais devagar. O feedback diz
+qual das duas fontes produziu o texto, em `transcript_source`.
 
 ## Estrutura
 
 ```
 Assets/Podium/
   Runtime/Api/        PodiumApiClient · DTOs · PodiumApiConfig · PodiumResult
-  Runtime/Audio/      PresentationRecorder (chunks) · WavEncoder
-  Runtime/Session/    PodiumSession (orquestra tudo) · SessionStatus · PersonaValues · ScenarioValues
+  Runtime/Audio/      PresentationRecorder (chunks + blocos) · TranscritorLocal · WavEncoder
+  Runtime/Session/    PodiumSession (orquestra tudo) · SalaDeAulaController (fluxo + painel de PC)
   Runtime/Scenarios/  ScenarioDefinition · PersonaDefinition (ScriptableObjects) · SalaDeAulaCenografia
   Runtime/Slides/     ApresentacaoDeSlides · TelaDeSlides · ConversorDeSlides (PDF/PPTx > PNG)
+  Runtime/XR/         PodiumXRRig (rig do headset) · PainelEmVR (painel no mundo)
   Scenarios/          SalaDeAula.asset (único cenário que o backend conhece)
   Personas/           ProfessorRigoroso · OrientadorAcolhedor · EspecialistaTecnico (espelham PersonaType)
-  Scenes/             SalaDeAula.unity (cena jogável, sem headset)
+  Scenes/             SalaDeAula.unity (roda no PC e no headset)
   Samples/            PodiumSmokeTest · SmokeTest.unity (cena pronta)
-Assets/Tests/EditMode/   WavEncoderTests · PodiumDtoTests · OrdemDosSlidesTests (NUnit, sem rede)
-Assets/Editor/           PodiumTestSetup · PodiumSlideExporter (PDF/PPTx > PNG) · PodiumSalaPreview
+Assets/Tests/EditMode/   WavEncoder · PodiumDto · OrdemDosSlides · CapturaDoMicrofone ·
+                         TranscricaoLocal (27 testes NUnit, sem rede)
+Assets/Editor/           PodiumTestSetup · PodiumSlideExporter · PodiumSalaPreview ·
+                         PodiumQuestSetup · PodiumSalaSetup · PodiumModeloSetup
+Assets/Samples/          Starter Assets do XR Interaction Toolkit (o rig)
 Assets/Settings/         assets do URP (PC_RPAsset · Mobile_RPAsset · renderers)
 Assets/Plugins/Android/network_security_config.xml
 ```
 
-Nenhum pacote externo: os DTOs usam `JsonUtility` e as chamadas usam `UnityWebRequest`,
-ambos módulos internos do Unity. Um único assembly definition (`Podium.Runtime`), que
-existe só para que os testes de EditMode enxerguem o código — asmdef não pode referenciar
+**Quatro pacotes, e cada um paga o que custa.** OpenXR e XR Plugin Management porque é o
+padrão que a Meta documenta para o Quest — SDK proprietário amarraria o projeto a um
+fabricante. XR Interaction Toolkit pelo rig das Starter Assets: controles, raios e
+interação com interface são justamente a parte que não compensa reescrever.
+[whisper.unity](https://github.com/Macoron/whisper.unity) (MIT) porque traz o whisper.cpp
+compilado para ARM64 de Android, que é o que permite transcrever dentro do headset. O
+Input System entra junto porque o rig depende dele.
+
+Fora isso, nada: os DTOs continuam em `JsonUtility` e as chamadas em `UnityWebRequest`,
+módulos internos do Unity. Um único assembly definition (`Podium.Runtime`), que existe só
+para que os testes de EditMode enxerguem o código — asmdef não pode referenciar
 `Assembly-CSharp`. Um desenvolvedor só: simplicidade operacional antes de elegância.
 
 ## Como rodar a Sala de Aula (sem headset)
@@ -85,8 +114,10 @@ O que está na cena e onde mexer:
 
 | Objeto | Componentes | Para quê |
 |---|---|---|
-| `Podium` | `PodiumApiClient`, `PresentationRecorder`, `PodiumSession`, `SalaDeAulaController`, `SalaDeAulaCenografia`, `ApresentacaoDeSlides` | O fluxo inteiro. O `Controller` desenha o painel (IMGUI, sem pacote). A `Cenografia` cria chão, púlpito, mesa, tela e um lugar por persona em runtime. A `ApresentacaoDeSlides` acha as imagens e guarda o slide no ar. |
-| `Main Camera` | Camera | Reposicionada no `spawnPosition` do cenário, a 1,6 m de altura. |
+| `Podium` | `PodiumApiClient`, `PresentationRecorder`, `PodiumSession`, `SalaDeAulaController`, `SalaDeAulaCenografia`, `ApresentacaoDeSlides` | O fluxo inteiro. O `Controller` decide a sessão e desenha o painel de PC (IMGUI, sem pacote). A `Cenografia` cria chão, púlpito, mesa, tela e um lugar por persona em runtime. A `ApresentacaoDeSlides` acha as imagens e guarda o slide no ar. |
+| `Podium` | `WhisperManager`, `TranscritorLocal` | Transcrevem a fala aqui mesmo, enquanto ela acontece. Desligue `ligado` no `TranscritorLocal` para forçar o STT do servidor — é assim que se compara as duas transcrições. |
+| `Podium` | `PodiumXRRig`, `PainelEmVR` | Só entram quando há headset ativo. No PC ficam quietos. |
+| `Main Camera` | Camera | Reposicionada no `spawnPosition` do cenário, a 1,6 m de altura. Desligada quando o rig assume. |
 
 ### Os slides na parede
 
@@ -110,6 +141,13 @@ backend: página numerada na parede é página numerada na âncora da pergunta.
 
 A conversão roda numa thread à parte, com o painel dizendo o que está acontecendo — leva
 segundos no primeiro Play de cada versão do arquivo.
+
+**No headset quem desenha é o backend.** Lá não há nem Office nem Docker, então, quando a
+conversão local não produz nada, o cliente pede as páginas ao servidor
+(`GET /presentations/{id}/slides`), que as rasteriza com o **mesmo PyMuPDF** que extraiu o
+texto — a página 7 da parede continua sendo a página 7 da âncora da pergunta. Só PDF: o
+`python-pptx` lê texto, não desenha. A conversão local segue preferida quando existe, por
+não depender da rede a cada troca de slide.
 
 Duas saídas continuam valendo, e têm precedência sobre a conversão:
 
@@ -177,9 +215,11 @@ Uma fala de 10 min leva **cerca de 3 minutos** entre o `/analyze` e o feedback (
 
 ## Testes
 
-`Window > General > Test Runner`, aba **EditMode**, *Run All*. Rodam em segundos, sem
-rede e sem backend: cabeçalho e escala do WAV, leitura dos DTOs a partir de respostas
-reais da API (incluindo os nulos que o `JsonUtility` não representa) e a montagem da URL.
+`Window > General > Test Runner`, aba **EditMode**, *Run All*. **27 testes**, em segundos,
+sem rede e sem backend: cabeçalho e escala do WAV, leitura dos DTOs a partir de respostas
+reais da API (incluindo os nulos que o `JsonUtility` não representa), a montagem da URL, a
+ordem natural dos slides, a volta do anel do microfone e o nome do modelo que sobe na
+auditoria.
 
 Pela linha de comando, sem abrir o Editor:
 
@@ -187,8 +227,10 @@ Pela linha de comando, sem abrir o Editor:
 "C:/Program Files/Unity/Hub/Editor/6000.5.10f1/Editor/Unity.exe" -projectPath C:/Users/eduar/projetos/podium-vr -batchmode -nographics -runTests -testPlatform EditMode -testResults C:/Users/eduar/projetos/podium-vr/Logs/editmode.xml
 ```
 
-O que os testes **não** cobrem, porque exige microfone ou rede: `PresentationRecorder`,
-`PodiumSession` e o cliente HTTP. Para esses existe o teste de fumaça.
+O que os testes **não** cobrem, porque exige microfone, rede ou headset: a captura em si
+do `PresentationRecorder`, o `PodiumSession`, o cliente HTTP, a transcrição do whisper e
+tudo que só existe dentro do VR. Para os primeiros existe o teste de fumaça; para o VR,
+não há substituto para vestir o aparelho.
 
 ## Rede — o que quebra ao sair do Editor
 
@@ -226,9 +268,18 @@ nada de expor essa porta para fora da LAN.
 | `GET /health` | Vida da API e do banco | `status`, `environment`, `database` |
 | `POST /presentations/init` | Cria sessão, ingere PDF/PPTx | `201` + `session_id` |
 | `POST /presentations/{id}/audio` | Áudio inteiro ou chunk (`is_chunk`) | `received_bytes` |
+| `PUT /presentations/{id}/transcript` | Entrega a fala já transcrita aqui | `char_count`, `word_count` |
 | `POST /presentations/{id}/analyze` | Dispara o pipeline | `202` + `poll_url` |
 | `GET /presentations/{id}` | Status da sessão | `created` → `audio_received` → `processing` → `completed` \| `failed` |
-| `GET /presentations/{id}/feedback` | Feedback Duplo | perguntas + métricas + cobertura |
+| `GET /presentations/{id}/slides` | Quantas páginas o servidor desenha | `total`, `renderizavel`, `motivo` |
+| `GET /presentations/{id}/slides/{n}` | Uma página em PNG (`largura`) | imagem |
+| `GET /presentations/{id}/feedback` | Feedback Duplo | perguntas + métricas + cobertura + `transcript_source` |
+
+**A ordem do `/transcript` é obrigatória:** depois do último chunk de áudio e antes do
+`/analyze`. O `/audio` apaga a transcrição da sessão ao receber áudio novo — é assim que
+"existe" significa "é deste áudio" —, então inverter apagaria o que o headset acabou de
+mandar. Transcrição vazia recebe `422`: o pipeline não reaproveita vazio, e aceitá-la só
+criaria a ilusão de que o STT seria pulado.
 
 `persona` aceita `professor_rigoroso`, `orientador_acolhedor`, `especialista_tecnico`.
 `scenario` aceita só `sala_de_aula`. Os valores estão em `SessionStatus.cs` e são
@@ -299,23 +350,58 @@ Ao montar a cena e ligar o XR, confirme que a plataforma Android está no nível
 (`Project Settings > Quality`), e ajuste ali MSAA e sombras: no Quest, custo de GPU é
 custo de conforto.
 
-## Pacotes XR — adicione quando for construir a cena
+## Como rodar no Quest
 
-Nada de XR está instalado ainda (o esqueleto não precisa). Em `Window > Package Manager`:
+O projeto já vem com OpenXR ligado e com os ajustes de Android aplicados. Do zero, numa
+máquina nova, são três comandos de menu e uma build.
 
-- **XR Plugin Management** — habilite **OpenXR** em Android e no Standalone
-- **OpenXR Plugin** — ative o grupo de features do Meta Quest
-- **XR Interaction Toolkit** — importe as samples *Starter Assets* e
-  **XR Device Simulator** (é ele que permite testar sem headset)
+1. **`Podium > Preparar o projeto para o Quest`.** Importa as Starter Assets do XR
+   Interaction Toolkit, liga o OpenXR em Android e Standalone e ajusta o Player: IL2CPP,
+   ARM64, API mínima 29, HTTP em texto claro liberado, Vulkan, qualidade Mobile e entrada
+   nos **dois** sistemas. Se ele disser para reiniciar o Editor, reinicie — a troca do
+   sistema de entrada só vale depois disso.
+2. **`Podium > Baixar o modelo de transcrição`.** Traz o `ggml-base-q5_1.bin` (~57 MB) do
+   Hugging Face para `StreamingAssets/Whisper/`. O arquivo não está no repositório e não
+   deve entrar: é binário grande, e o Git guardaria uma cópia inteira a cada troca.
+3. **`Podium > Ligar a transcrição local e o headset na cena`.** Põe na cena o
+   `WhisperManager`, o `TranscritorLocal`, o `PodiumXRRig` e o `PainelEmVR`, e liga um ao
+   outro. É idempotente: rodar de novo conserta o que faltar.
+4. **Troque o `baseUrl`** do `PodiumApiConfig` pelo IP do PC na rede (veja *Rede* abaixo).
+   `localhost` no headset é o próprio headset.
+5. `File > Build Profiles`, plataforma **Android**, e *Build And Run* com o Quest ligado
+   no cabo, em modo de desenvolvedor.
 
-Build para Quest: plataforma **Android**, **IL2CPP**, **ARM64**. A API mínima segue a
-exigência vigente da Meta — confira antes de empacotar. O SDK da Meta (passthrough, hand
-tracking) só entra se uma feature específica pedir; OpenXR puro mantém o projeto portátil.
+Cada um desses passos roda em modo de lote, que é como foram conferidos:
+
+```bash
+"C:/Program Files/Unity/Hub/Editor/6000.5.10f1/Editor/Unity.exe" -projectPath C:/Users/eduar/projetos/podium-vr -batchmode -nographics -quit -executeMethod Podium.EditorTools.PodiumQuestSetup.Preparar
+```
+
+**O que ainda não foi verificado dentro de um headset.** Não havia Quest conectado a esta
+máquina quando isto foi escrito: compilação, testes de EditMode e os três menus foram
+executados e conferidos, mas o rig em uso, o raio apertando os botões do painel e a
+velocidade do whisper no XR2 continuam por medir. Meça antes de afirmar no relatório — em
+especial quantos segundos de atraso a transcrição acumula numa fala de 10 min, porque é
+esse número que decide entre o modelo `base` e o `tiny`.
+
+O SDK da Meta (passthrough, hand tracking) só entra se uma feature específica pedir;
+OpenXR puro mantém o projeto portátil.
+
+### Dentro do headset a interface é outra
+
+O painel IMGUI não aparece no Quest — o IMGUI desenha no buffer da tela, e no VR isso não
+é lugar nenhum. Quem assume é o `PainelEmVR`: um quadro flutuante à esquerda do púlpito,
+com três botões que o raio do controle aperta. Mostra a mesma sessão e comanda o mesmo
+`SalaDeAulaController`; o que muda é o desenho, não o fluxo.
+
+No PC nada disso entra em cena, e o painel da tela continua como antes.
 
 ## Fora do escopo por decisão registrada
 
 | Item | Quando entra |
 |---|---|
 | **Voz da banca (TTS)** | TCC III. Arquitetura já decidida no backend: síntese em lote após a validação, com cache |
+| **Avatares da banca** | TCC III. O ponto de encaixe existe: `PersonaDefinition.avatarPrefab` |
 | **Autenticação** | Obrigatória antes de qualquer deploy público |
 | **Outros cenários** | O MVP entrega só a sala de aula; o backend só conhece `sala_de_aula` |
+| **Mãos sem controle** | `com.unity.xr.hands` não entrou: apontar e apertar já resolve, e hand tracking sem necessidade é pacote a defender na banca |
