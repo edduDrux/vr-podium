@@ -1,7 +1,14 @@
 {
     "name": "Podium.Runtime",
     "rootNamespace": "Podium",
-    "references": [],
+    "references": [
+        "UnityEngine.UI",
+        "Unity.InputSystem",
+        "Unity.XR.CoreUtils",
+        "Unity.XR.Management",
+        "Unity.XR.Interaction.Toolkit",
+        "com.whisper.unity"
+    ],
     "includePlatforms": [],
     "excludePlatforms": [],
     "allowUnsafeCode": false,

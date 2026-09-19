@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Podium.Audio
 {
     /// <summary>
-    /// Grava o microfone do headset em pedaços de duração fixa e entrega cada pedaço
-    /// pronto para upload.
+    /// Grava o microfone do headset e entrega a fala por dois caminhos ao mesmo tempo:
+    /// pedaços de duração fixa prontos para upload e blocos curtos para quem transcreve
+    /// enquanto a pessoa fala.
     /// <para>
     /// Grava em chunks em vez de um arquivo único por três motivos: 15 minutos de PCM
     /// vivem na memória do Quest o tempo todo; o upload inteiro só começaria depois da
@@ -13,12 +15,19 @@ namespace Podium.Audio
     /// rede no fim perderia a apresentação toda. A API aceita chunks nativamente
     /// (is_chunk=true) e os concatena no /analyze.
     /// </para>
+    /// <para>
+    /// O microfone é drenado a cada quadro, e não lido só no fim do pedaço. É o que
+    /// permite um único leitor servir dois consumidores: o <see cref="ChunkReady"/> junta
+    /// os blocos até fechar um minuto de WAV, e o <see cref="BlocoCapturado"/> entrega o
+    /// mesmo áudio em tempo real para a transcrição local. Dois <c>Microphone.Start</c> no
+    /// mesmo dispositivo não coexistem — o segundo reinicia o primeiro.
+    /// </para>
     /// </summary>
     public class PresentationRecorder : MonoBehaviour
     {
         [Header("Captura")]
-        [Tooltip("16 kHz mono é exatamente o que o backend usa no STT. Gravar acima disso " +
-                 "só aumenta o upload — a conversão descartaria a diferença.")]
+        [Tooltip("16 kHz mono é exatamente o que o backend usa no STT, e também o que o " +
+                 "Whisper espera. Gravar acima disso só aumenta o upload.")]
         [SerializeField] private int sampleRate = 16000;
 
         [Tooltip("Duração de cada pedaço enviado. 60 s equilibra memória e número de requisições.")]
@@ -28,15 +37,20 @@ namespace Podium.Audio
                  "/analyze responde 413 e a sessão inteira se perde — melhor parar antes.")]
         [SerializeField] private int maxMinutes = 15;
 
-        // O buffer do microfone é alocado MAIOR do que o pedaço. Com loop=false o Unity
-        // para a captura sozinho quando o buffer enche, e o que GetPosition devolve
-        // nesse estado não é garantido. Fechando o pedaço aos `chunkSeconds` num buffer
-        // de `chunkSeconds + margem`, o microfone ainda está gravando quando a posição é
-        // lida — mesmo que o Update atrase alguns segundos numa travada.
-        private const int BufferMarginSeconds = 5;
+        // O anel do microfone só precisa aguentar o intervalo entre duas drenagens. Dez
+        // segundos é folga de sobra para um quadro, e sobrevive a uma travada de
+        // carregamento de slide sem perder fala.
+        private const int SegundosDeBuffer = 10;
 
         /// <summary>Disparado a cada pedaço com áudio: (wav, índice).</summary>
         public event Action<byte[], int> ChunkReady;
+
+        /// <summary>
+        /// Disparado a cada drenagem do microfone: (amostras intercaladas, canais,
+        /// frequência). É o áudio cru, do jeito que saiu do dispositivo — quem transcreve
+        /// reamostra se precisar.
+        /// </summary>
+        public event Action<float[], int, int> BlocoCapturado;
 
         /// <summary>
         /// Disparado quando a gravação encerra, DEPOIS do último ChunkReady. É este sinal,
@@ -50,10 +64,13 @@ namespace Podium.Audio
 
         private string device;
         private AudioClip clip;
-        private float chunkStartedAt;
         private float sessionStartedAt;
+        private int ultimaPosicao;
         private int chunkIndex;
         private bool recording;
+
+        // Amostras intercaladas ainda não fechadas em um pedaço.
+        private readonly List<float> acumulado = new List<float>();
 
         public bool IsRecording
         {
@@ -76,6 +93,12 @@ namespace Podium.Audio
             get { return chunkIndex; }
         }
 
+        /// <summary>Frequência realmente usada — o dispositivo pode não aceitar a pedida.</summary>
+        public int SampleRate
+        {
+            get { return clip != null ? clip.frequency : sampleRate; }
+        }
+
         public bool StartRecording()
         {
             if (recording)
@@ -93,11 +116,22 @@ namespace Podium.Audio
             device = Microphone.devices[0];
             sampleRate = ClampToDeviceCaps(device, sampleRate);
 
-            sessionStartedAt = Time.realtimeSinceStartup;
+            // loop=true: o anel nunca "enche e para", então a posição lida é sempre
+            // confiável e a drenagem por quadro não depende de o Update chegar a tempo.
+            clip = Microphone.Start(device, true, SegundosDeBuffer, sampleRate);
+            if (clip == null)
+            {
+                Debug.LogError("[Podium] Microphone.Start falhou para o dispositivo " + device);
+                return false;
+            }
+
+            acumulado.Clear();
+            ultimaPosicao = 0;
             chunkIndex = 0;
+            sessionStartedAt = Time.realtimeSinceStartup;
             recording = true;
 
-            return StartChunk();
+            return true;
         }
 
         /// <summary>Fecha o pedaço corrente, encerra e avisa por RecordingStopped.</summary>
@@ -109,7 +143,13 @@ namespace Podium.Audio
             }
 
             recording = false;
+
+            Drenar();
+            Microphone.End(device);
             FecharChunk();
+
+            Destroy(clip);
+            clip = null;
 
             if (RecordingStopped != null)
             {
@@ -134,67 +174,93 @@ namespace Podium.Audio
                 return;
             }
 
-            if (Time.realtimeSinceStartup - chunkStartedAt >= chunkSeconds)
+            Drenar();
+
+            if (acumulado.Count >= AmostrasPorChunk())
             {
                 FecharChunk();
-                StartChunk();
             }
         }
 
-        private bool StartChunk()
+        private int AmostrasPorChunk()
         {
-            clip = Microphone.Start(device, false, chunkSeconds + BufferMarginSeconds, sampleRate);
-            if (clip == null)
-            {
-                Debug.LogError("[Podium] Microphone.Start falhou para o dispositivo " + device);
-                recording = false;
-                return false;
-            }
-
-            chunkStartedAt = Time.realtimeSinceStartup;
-            return true;
+            return chunkSeconds * clip.frequency * clip.channels;
         }
 
-        private void FecharChunk()
+        /// <summary>
+        /// Copia do anel do microfone tudo que entrou desde a última leitura, guarda para
+        /// o pedaço em formação e entrega a quem transcreve.
+        /// </summary>
+        private void Drenar()
         {
             if (clip == null)
             {
                 return;
             }
 
-            int posicao;
-            if (Microphone.IsRecording(device))
+            int posicao = Microphone.GetPosition(device);
+            int quadrosNovos = AmostrasNovas(ultimaPosicao, posicao, clip.samples);
+
+            if (quadrosNovos <= 0)
             {
-                // Lida ANTES do End: depois dele, GetPosition devolve 0.
-                posicao = Microphone.GetPosition(device);
-            }
-            else
-            {
-                // O buffer encheu antes de o Update chegar aqui — só acontece com uma
-                // travada maior do que a margem. Nesse estado a posição não é confiável;
-                // o buffer inteiro é o único valor seguro.
-                posicao = clip.samples;
-                Debug.LogWarning("[Podium] Buffer do microfone encheu antes do fechamento do " +
-                                 "pedaço " + chunkIndex + "; usando o buffer inteiro.");
+                return;
             }
 
-            Microphone.End(device);
-
-            if (posicao > 0)
+            if (quadrosNovos > clip.samples / 2)
             {
-                float[] amostras = new float[posicao * clip.channels];
-                clip.GetData(amostras, 0);
-
-                byte[] wav = WavEncoder.FromSamples(amostras, clip.channels, clip.frequency);
-                if (ChunkReady != null)
-                {
-                    ChunkReady(wav, chunkIndex);
-                }
-                chunkIndex++;
+                // Metade do anel numa drenagem só significa que o quadro demorou segundos.
+                // A fala anterior a isto pode ter sido sobrescrita pelo próprio microfone.
+                Debug.LogWarning("[Podium] O microfone avançou " + quadrosNovos +
+                                 " amostras entre duas leituras; parte da fala pode ter " +
+                                 "sido perdida numa travada.");
             }
 
-            Destroy(clip);
-            clip = null;
+            float[] bloco = new float[quadrosNovos * clip.channels];
+
+            // GetData dá a volta sozinho quando a leitura passa do fim do anel.
+            clip.GetData(bloco, ultimaPosicao);
+            ultimaPosicao = posicao;
+
+            acumulado.AddRange(bloco);
+
+            if (BlocoCapturado != null)
+            {
+                BlocoCapturado(bloco, clip.channels, clip.frequency);
+            }
+        }
+
+        /// <summary>
+        /// Quantos quadros entraram no anel entre duas posições. Separado e público porque
+        /// a volta do anel (a posição nova menor que a anterior) é a única aritmética aqui
+        /// que erra em silêncio: errada, ela não estoura — só entrega fala embaralhada.
+        /// </summary>
+        public static int AmostrasNovas(int anterior, int atual, int tamanhoDoAnel)
+        {
+            if (tamanhoDoAnel <= 0)
+            {
+                return 0;
+            }
+
+            int avanco = atual - anterior;
+            return avanco >= 0 ? avanco : avanco + tamanhoDoAnel;
+        }
+
+        private void FecharChunk()
+        {
+            if (acumulado.Count == 0 || clip == null)
+            {
+                return;
+            }
+
+            byte[] wav = WavEncoder.FromSamples(acumulado.ToArray(), clip.channels, clip.frequency);
+            acumulado.Clear();
+
+            if (ChunkReady != null)
+            {
+                ChunkReady(wav, chunkIndex);
+            }
+
+            chunkIndex++;
         }
 
         private void OnDisable()
