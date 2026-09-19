@@ -155,6 +155,13 @@ namespace Podium.Api
         public SlideCoverageReport slide_coverage;
 
         /// <summary>
+        /// Quem transcreveu: `servidor (gemini-3.5-flash)` ou
+        /// `cliente_vr (whisper.cpp ggml-base-q5_1)`. Vazio em feedback anterior a este
+        /// registro — o JsonUtility não distingue ausente de nulo.
+        /// </summary>
+        public string transcript_source;
+
+        /// <summary>
         /// True quando a API mandou `slide_coverage: null` — feedback anterior à cobertura
         /// de slides. Existe porque o JsonUtility materializa um objeto vazio no lugar do
         /// null, e a tela não pode mostrar 0% de cobertura para uma sessão que nunca foi
@@ -169,5 +176,51 @@ namespace Podium.Api
     public class ApiErrorBody
     {
         public string detail;
+    }
+
+    /// <summary>
+    /// Corpo do PUT /presentations/{id}/transcript — a fala já transcrita no headset.
+    /// Enviado DEPOIS do último chunk: o /audio apaga a transcrição ao receber áudio novo.
+    /// </summary>
+    [Serializable]
+    public class TranscriptSubmission
+    {
+        public string transcript;
+
+        /// <summary>Quem transcreveu, para a auditoria distinguir as fontes no relatório.</summary>
+        public string engine;
+    }
+
+    /// <summary>PUT /api/v1/presentations/{id}/transcript</summary>
+    [Serializable]
+    public class TranscriptAcceptedResponse
+    {
+        public string session_id;
+        public string status;
+        public int char_count;
+        public int word_count;
+        public string message;
+    }
+
+    /// <summary>
+    /// GET /api/v1/presentations/{id}/slides — quantas páginas o servidor consegue
+    /// desenhar. É o caminho dos slides no headset, onde não há PowerPoint nem Docker.
+    /// </summary>
+    [Serializable]
+    public class SlidesInfoResponse
+    {
+        public string session_id;
+        public string file_type;
+
+        /// <summary>Zero quando o formato não permite desenhar (PPTx).</summary>
+        public int total;
+
+        public bool renderizavel;
+
+        /// <summary>Por que não há imagens. Pronto para a tela, quando `renderizavel` é falso.</summary>
+        public string motivo;
+
+        public int largura_padrao;
+        public int largura_maxima;
     }
 }

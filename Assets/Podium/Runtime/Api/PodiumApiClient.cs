@@ -140,6 +140,85 @@ namespace Podium.Api
         }
 
         /// <summary>
+        /// PUT /presentations/{id}/transcript — entrega a fala já transcrita no headset.
+        /// <para>
+        /// Chame DEPOIS do último chunk de áudio e ANTES do /analyze: o /audio apaga a
+        /// transcrição ao receber áudio novo (é assim que "existe" significa "é deste
+        /// áudio"), e o /analyze só pula o STT se encontrar o texto já gravado.
+        /// </para>
+        /// </summary>
+        public IEnumerator SubmitTranscript(
+            string sessionId,
+            string transcript,
+            string engine,
+            Action<PodiumResult<TranscriptAcceptedResponse>> onDone)
+        {
+            TranscriptSubmission corpo = new TranscriptSubmission
+            {
+                transcript = transcript,
+                engine = engine,
+            };
+
+            byte[] json = System.Text.Encoding.UTF8.GetBytes(JsonUtility.ToJson(corpo));
+
+            UnityWebRequest req = new UnityWebRequest(
+                config.ApiRoot + "/presentations/" + sessionId + "/transcript", "PUT");
+            req.uploadHandler = new UploadHandlerRaw(json);
+            req.downloadHandler = new DownloadHandlerBuffer();
+            req.SetRequestHeader("Content-Type", "application/json");
+            req.timeout = config.uploadTimeout;
+
+            yield return Send(req, onDone);
+        }
+
+        /// <summary>
+        /// GET /presentations/{id}/slides — quantas páginas o servidor desenha desta sessão.
+        /// </summary>
+        public IEnumerator GetSlidesInfo(
+            string sessionId,
+            Action<PodiumResult<SlidesInfoResponse>> onDone)
+        {
+            UnityWebRequest req = UnityWebRequest.Get(
+                config.ApiRoot + "/presentations/" + sessionId + "/slides");
+            req.timeout = config.requestTimeout;
+            yield return Send(req, onDone);
+        }
+
+        /// <summary>
+        /// GET /presentations/{id}/slides/{numero} — uma página em PNG, já como textura.
+        /// A numeração é base 1, a mesma do `slide_origem` das perguntas.
+        /// </summary>
+        public IEnumerator GetSlideTexture(
+            string sessionId,
+            int numero,
+            int largura,
+            Action<PodiumResult<Texture2D>> onDone)
+        {
+            string url = config.ApiRoot + "/presentations/" + sessionId + "/slides/" + numero +
+                         "?largura=" + largura;
+
+            // nonReadable: a textura só vai para a parede, e a cópia legível na CPU
+            // dobraria a memória de cada slide no headset.
+            using (UnityWebRequest req = UnityWebRequestTexture.GetTexture(url, true))
+            {
+                req.timeout = config.requestTimeout;
+                yield return req.SendWebRequest();
+
+                if (req.result != UnityWebRequest.Result.Success)
+                {
+                    onDone(PodiumResult<Texture2D>.Failure(
+                        KindFor(req.responseCode),
+                        "Slide " + numero + " não veio do servidor: " + req.error,
+                        req.responseCode));
+                    yield break;
+                }
+
+                onDone(PodiumResult<Texture2D>.Success(
+                    DownloadHandlerTexture.GetContent(req), req.responseCode, null));
+            }
+        }
+
+        /// <summary>
         /// POST /presentations/{id}/analyze — responde 202 e processa em segundo plano.
         /// Um 409 aqui quase sempre significa "esta sessão já está sendo analisada": não
         /// é falha, é motivo para começar a consultar o status.
