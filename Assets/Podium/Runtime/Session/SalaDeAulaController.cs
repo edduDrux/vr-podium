@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Globalization;
 using Podium.Api;
 using Podium.Audio;
@@ -8,12 +9,18 @@ using UnityEngine;
 namespace Podium.Session
 {
     /// <summary>
-    /// Lobby e painel de estado da Sala de Aula, em IMGUI.
+    /// O fluxo da Sala de Aula — escolher a banca, criar a sessão, apresentar, navegar o
+    /// Feedback Duplo — e o painel IMGUI que o mostra no PC.
     /// <para>
     /// IMGUI, e não Canvas/TextMeshPro, porque não exige pacote, fonte nem prefab: a cena
-    /// abre e funciona em qualquer máquina que abra o projeto. Não é a interface final do
-    /// VR — é a que permite ver a sessão inteira acontecer (escolha da persona, gravação,
-    /// análise, Feedback Duplo) enquanto a interação XR ainda não existe.
+    /// abre e funciona em qualquer máquina que abra o projeto. Dentro do headset ele não
+    /// aparece (o IMGUI desenha no buffer da tela), e quem mostra a mesma sessão é o
+    /// <c>PainelEmVR</c>.
+    /// </para>
+    /// <para>
+    /// As operações são públicas por causa disso: duas telas, um fluxo só. Repetir aqui e
+    /// lá as decisões de quando criar sessão ou trocar de pergunta seria garantir que uma
+    /// das duas ficasse para trás.
     /// </para>
     /// </summary>
     public class SalaDeAulaController : MonoBehaviour
@@ -54,6 +61,133 @@ namespace Podium.Session
         private GUIStyle texto;
         private GUIStyle destaque;
         private bool estilosProntos;
+
+        /// <summary>
+        /// Desenhar o painel IMGUI na tela. O <c>PainelEmVR</c> desliga isto ao assumir:
+        /// dentro do headset o IMGUI não aparece, e continuar desenhando só gastaria quadro.
+        /// </summary>
+        public bool DesenharNaTela { get; set; } = true;
+
+        public ScenarioDefinition Cenario
+        {
+            get { return scenario; }
+        }
+
+        public string MensagemApi
+        {
+            get { return mensagemApi; }
+        }
+
+        public bool ApiOk
+        {
+            get { return apiOk && !verificandoApi && session != null; }
+        }
+
+        public string StatusDaAnalise
+        {
+            get { return statusAnalise; }
+        }
+
+        public float DecorridoDaAnalise
+        {
+            get { return decorridoAnalise; }
+        }
+
+        public string Erro
+        {
+            get { return erro; }
+        }
+
+        public FeedbackResponse Feedback
+        {
+            get { return feedback; }
+        }
+
+        public int PerguntaSelecionada
+        {
+            get { return perguntaSelecionada; }
+        }
+
+        public string NomeDaPersona
+        {
+            get
+            {
+                PersonaDefinition p = PersonaAtual();
+                return p != null ? p.displayName : "(sem persona)";
+            }
+        }
+
+        public string DescricaoDaPersona
+        {
+            get
+            {
+                PersonaDefinition p = PersonaAtual();
+                return p != null ? p.description : "Nenhuma persona atribuída no Inspector.";
+            }
+        }
+
+        /// <summary>Quem transcreve esta sessão, em uma frase.</summary>
+        public string DiagnosticoDaTranscricao
+        {
+            get { return session != null ? session.DiagnosticoDaTranscricao : string.Empty; }
+        }
+
+        private PersonaDefinition PersonaAtual()
+        {
+            if (personas == null || personas.Length == 0)
+            {
+                return null;
+            }
+
+            return personas[Mathf.Clamp(personaSelecionada, 0, personas.Length - 1)];
+        }
+
+        /// <summary>Anda pela lista de personas, dando a volta no fim.</summary>
+        public void TrocarPersona(int passo)
+        {
+            if (personas == null || personas.Length == 0)
+            {
+                return;
+            }
+
+            personaSelecionada =
+                ((personaSelecionada + passo) % personas.Length + personas.Length) % personas.Length;
+            AplicarSelecao();
+        }
+
+        /// <summary>Procura as imagens dos slides do arquivo apontado, sem abrir sessão.</summary>
+        public void ConferirSlides()
+        {
+            CarregarSlides();
+        }
+
+        /// <summary>Cria a sessão no backend com a persona e o arquivo escolhidos.</summary>
+        public void CriarSessao()
+        {
+            if (session == null)
+            {
+                return;
+            }
+
+            erro = null;
+            feedback = null;
+            AplicarSelecao();
+            CarregarSlides();
+            session.BeginSession(presentationPath);
+        }
+
+        /// <summary>Volta ao lobby depois do feedback, para apresentar de novo.</summary>
+        public void NovaSessao()
+        {
+            voltarAoLobby = true;
+        }
+
+        /// <summary>Abre uma pergunta pelo índice e leva a tela da sala ao slide dela.</summary>
+        public void IrParaPergunta(int indice)
+        {
+            verTodasAsPerguntas = false;
+            SelecionarPergunta(indice);
+        }
 
         private void OnEnable()
         {
@@ -126,7 +260,7 @@ namespace Podium.Session
             }
         }
 
-        private void VerificarApi()
+        public void VerificarApi()
         {
             if (api == null || verificandoApi)
             {
@@ -161,6 +295,29 @@ namespace Podium.Session
                 statusAnalise = SessionStatus.Processing;
                 decorridoAnalise = 0f;
             }
+
+            // A sessão existe a partir daqui, e com ela a chance de pedir as páginas ao
+            // backend — o único caminho que funciona no headset, onde não há PowerPoint
+            // nem Docker para converter o arquivo em imagens.
+            if (novo == PodiumSessionState.Ready)
+            {
+                StartCoroutine(GarantirSlidesDaSessao());
+            }
+        }
+
+        /// <summary>
+        /// Se a conversão local não produziu nada, projeta as páginas que o backend desenha.
+        /// A ordem importa: a conversão local é preferida por não depender da rede a cada
+        /// troca de slide, e só quando ela não existe é que a parede vem pelo Wi-Fi.
+        /// </summary>
+        private IEnumerator GarantirSlidesDaSessao()
+        {
+            if (slides == null || api == null || session == null || slides.TemSlides)
+            {
+                yield break;
+            }
+
+            yield return slides.CarregarDoServidor(api, session.SessionId);
         }
 
         private void AoProgredir(string status, float decorrido)
@@ -211,6 +368,11 @@ namespace Podium.Session
 
         private void OnGUI()
         {
+            if (!DesenharNaTela)
+            {
+                return;
+            }
+
             PrepararEstilos();
 
             float largura = Mathf.Min(640f, Screen.width - 40f);
@@ -331,14 +493,10 @@ namespace Podium.Session
                 VerificarApi();
             }
 
-            GUI.enabled = apiOk && !verificandoApi && session != null;
+            GUI.enabled = ApiOk;
             if (GUILayout.Button("Criar sessão", GUILayout.Height(32f)))
             {
-                erro = null;
-                feedback = null;
-                AplicarSelecao();
-                CarregarSlides();
-                session.BeginSession(presentationPath);
+                CriarSessao();
             }
             GUI.enabled = true;
             GUILayout.EndHorizontal();
@@ -461,6 +619,13 @@ namespace Podium.Session
                                     f.slide_coverage.alerta_descolamento ? destaque : texto);
                 }
 
+                if (!string.IsNullOrEmpty(f.transcript_source))
+                {
+                    // Quem transcreveu muda a acurácia esperada do texto, e com ela a
+                    // leitura das perguntas: o relatório compara as duas fontes.
+                    GUILayout.Label("Transcrição por " + f.transcript_source, texto);
+                }
+
                 if (f.slides_truncados || f.transcricao_truncada)
                 {
                     GUILayout.Label("Aviso: contexto truncado (slides: " + f.slides_truncados +
@@ -544,8 +709,7 @@ namespace Podium.Session
 
                 if (GUILayout.Button("Abrir esta pergunta", GUILayout.Height(24f)))
                 {
-                    verTodasAsPerguntas = false;
-                    SelecionarPergunta(i);
+                    IrParaPergunta(i);
                 }
 
                 GUILayout.Space(6f);
