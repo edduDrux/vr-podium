@@ -22,7 +22,6 @@ namespace Podium.Tests
             Assert.AreEqual("fee53f5f-beae-44d7-b18a-fbf076f30507", f.session_id);
             Assert.AreEqual(1, f.questions.Length);
             Assert.AreEqual(2, f.questions[0].slide_origem);
-            Assert.IsNull(f.questions[0].rationale);
             Assert.AreEqual(1, f.metrics.pause_count);
             Assert.AreEqual(1.23f, f.metrics.longest_pause_seconds, 0.001f);
             Assert.AreEqual(6, f.perguntas_aprovadas);
@@ -31,6 +30,25 @@ namespace Podium.Tests
             Assert.AreEqual(2, f.slide_coverage.slides.Length);
             Assert.AreEqual("sem_termos", f.slide_coverage.slides[0].classificacao);
             Assert.AreEqual(2, f.slide_coverage.slides[1].termos_ausentes.Length);
+        }
+
+        /// <summary>
+        /// `"rationale": null` chega como string VAZIA, não como null.
+        /// <para>
+        /// O JsonUtility não representa null em string: ele materializa `string.Empty`.
+        /// A consequência prática é a regra que a tela precisa seguir — testar um campo
+        /// opcional com `!= null` o daria sempre por preenchido, e a interface mostraria
+        /// "Por quê:" seguido de nada. Todo campo opcional de texto se testa com
+        /// `string.IsNullOrEmpty`, e é isso que o painel faz.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void TextoNuloChegaVazioENaoNulo()
+        {
+            FeedbackResponse f = JsonUtility.FromJson<FeedbackResponse>(FeedbackReal);
+
+            Assert.IsEmpty(f.questions[0].rationale);
+            Assert.IsTrue(string.IsNullOrEmpty(f.questions[0].rationale));
         }
 
         [Test]
