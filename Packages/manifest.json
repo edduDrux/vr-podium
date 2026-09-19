@@ -1,7 +1,12 @@
 {
   "dependencies": {
+    "com.unity.inputsystem": "1.20.0",
     "com.unity.multiplayer.center": "1.0.1",
     "com.unity.render-pipelines.universal": "17.0.1",
+    "com.unity.xr.interaction.toolkit": "3.6.1",
+    "com.unity.xr.management": "4.6.1",
+    "com.unity.xr.openxr": "1.18.0",
+    "com.whisper.unity": "https://github.com/Macoron/whisper.unity.git?path=/Packages/com.whisper.unity#1.4.0",
     "com.unity.modules.accessibility": "1.0.0",
     "com.unity.modules.adaptiveperformance": "1.0.0",
     "com.unity.modules.ai": "1.0.0",
