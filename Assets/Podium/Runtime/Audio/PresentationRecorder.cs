@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+#if UNITY_ANDROID && !UNITY_EDITOR
+using UnityEngine.Android;
+#endif
 
 namespace Podium.Audio
 {
@@ -99,6 +102,41 @@ namespace Podium.Audio
             get { return clip != null ? clip.frequency : sampleRate; }
         }
 
+        /// <summary>
+        /// Pede a permissão de microfone assim que a cena abre, e não na hora de gravar.
+        /// <para>
+        /// No Android o microfone é permissão perigosa: sem ela concedida,
+        /// <c>Microphone.devices</c> vem vazio e a única pista é "nenhum microfone
+        /// disponível" — que parece defeito de hardware. Pedindo no início, a caixa do
+        /// sistema aparece enquanto a pessoa ainda está no lobby, e não no instante em que
+        /// ela começou a falar.
+        /// </para>
+        /// </summary>
+        private void Start()
+        {
+            PedirPermissao();
+        }
+
+        private static void PedirPermissao()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (!Permission.HasUserAuthorizedPermission(Permission.Microphone))
+            {
+                Permission.RequestUserPermission(Permission.Microphone);
+            }
+#endif
+        }
+
+        /// <summary>A permissão já foi concedida (ou a plataforma não pede nenhuma).</summary>
+        public static bool TemPermissao
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            get { return Permission.HasUserAuthorizedPermission(Permission.Microphone); }
+#else
+            get { return true; }
+#endif
+        }
+
         public bool StartRecording()
         {
             if (recording)
@@ -106,10 +144,20 @@ namespace Podium.Audio
                 return true;
             }
 
+            if (!TemPermissao)
+            {
+                // Pedir de novo: quem negou por engano ganha uma segunda caixa em vez de
+                // um app que nunca mais grava.
+                PedirPermissao();
+                Debug.LogError("[Podium] Sem permissão de microfone. Conceda na caixa do " +
+                               "sistema e comece a apresentação de novo.");
+                return false;
+            }
+
             if (Microphone.devices.Length == 0)
             {
-                Debug.LogError("[Podium] Nenhum microfone disponível. No Quest, o app " +
-                               "precisa da permissão de microfone concedida.");
+                Debug.LogError("[Podium] Nenhum microfone disponível. No Quest, confira a " +
+                               "permissão de microfone nas configurações do app.");
                 return false;
             }
 

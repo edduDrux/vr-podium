@@ -238,7 +238,7 @@ No Editor tudo é `localhost`. **No headset, `localhost` é o próprio Quest.** 
 ajustes, nesta ordem:
 
 1. **Endereço.** `baseUrl` = `http://<IP-do-PC-na-LAN>:8000`.
-   Hoje esta máquina está em **10.120.8.241** — confirme com `ipconfig`, porque o IP
+   Em 2026-09-20 esta máquina estava em **192.168.0.16** — confirme com `ipconfig`, porque o IP
    muda a cada rede. O `docker-compose.yml` já publica a porta 8000 no host.
 2. **Firewall do Windows.** Libere a entrada na 8000 (PowerShell como administrador):
 
