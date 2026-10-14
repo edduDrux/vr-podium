@@ -13,8 +13,8 @@ using Whisper;
 namespace Podium.EditorTools
 {
     /// <summary>
-    /// Liga na cena da Sala de Aula as peças novas: a transcrição local, o rig do headset e
-    /// o painel que aparece dentro dele.
+    /// Liga na cena da Sala de Aula as peças novas: a transcrição local, o rig do headset, o
+    /// painel que aparece dentro dele e os comandos de controle e de mão.
     /// <para>
     /// Existe pelo mesmo motivo do <see cref="PodiumTestSetup"/>: arrastar asset para campo
     /// do Inspector é o passo que falha em silêncio. O campo fica nulo, o Play não estoura
@@ -63,12 +63,26 @@ namespace Podium.EditorTools
             Atribuir(rig, "scenario", PrimeiroCenario());
             Atribuir(rig, "rigPrefab", CarregarRig(feito));
 
+            SalaDeAulaController controlador = Object.FindAnyObjectByType<SalaDeAulaController>();
+            ApresentacaoDeSlides slides = Object.FindAnyObjectByType<ApresentacaoDeSlides>();
+
             PainelEmVR painel = Garantir<PainelEmVR>(alvo, feito, "PainelEmVR");
-            Atribuir(painel, "controlador", Object.FindAnyObjectByType<SalaDeAulaController>());
+            Atribuir(painel, "controlador", controlador);
             Atribuir(painel, "session", session);
             Atribuir(painel, "recorder", Object.FindAnyObjectByType<PresentationRecorder>());
-            Atribuir(painel, "slides", Object.FindAnyObjectByType<ApresentacaoDeSlides>());
+            Atribuir(painel, "slides", slides);
             Atribuir(painel, "rig", rig);
+
+            // Os comandos que não pedem mira: A/B/X/Y nos slides e nas perguntas, Menu e
+            // pinça longa para trazer o painel. Sem eles, no headset só o raio funciona.
+            ComandosDoApresentador comandos =
+                Garantir<ComandosDoApresentador>(alvo, feito, "ComandosDoApresentador");
+            Atribuir(comandos, "controlador", controlador);
+            Atribuir(comandos, "slides", slides);
+            Atribuir(comandos, "painel", painel);
+            Atribuir(comandos, "rig", rig);
+
+            Atribuir(painel, "comandos", comandos);
 
             EditorSceneManager.MarkSceneDirty(cena);
             EditorSceneManager.SaveScene(cena);

@@ -6,9 +6,9 @@ namespace Podium.Scenarios
 {
     /// <summary>
     /// Monta a sala com primitivos em tempo de execução: piso, paredes, teto, quadro,
-    /// púlpito, mesa da banca, um lugar por persona (no assento que a
-    /// <see cref="PersonaDefinition.seatIndex"/> indica) e a plateia de mesas e cadeiras
-    /// atrás da banca.
+    /// púlpito, a marca no chão de quem apresenta, mesa da banca, um lugar por persona (no
+    /// assento que a <see cref="PersonaDefinition.seatIndex"/> indica) e a plateia de mesas
+    /// e cadeiras atrás da banca.
     /// <para>
     /// Primitivos criados por código, e não salvos na cena, para que o material seja
     /// sempre o padrão do pipeline ativo (URP): uma cena com material referenciado à mão
@@ -61,6 +61,11 @@ namespace Podium.Scenarios
         [Tooltip("Altura da câmera no Editor. No headset, quem manda é o tracking.")]
         [SerializeField] private float alturaOlhos = 1.6f;
 
+        [Tooltip("Marca no chão onde quem apresenta deve ficar, com a ponta virada para a " +
+                 "banca. No headset o lugar físico da pessoa raramente coincide com o ponto " +
+                 "de nascimento, e é por ela que se acha o púlpito sem tatear.")]
+        [SerializeField] private bool comMarcaNoChao = true;
+
         private static readonly Color[] CoresPersonas =
         {
             new Color(0.55f, 0.20f, 0.20f),
@@ -79,6 +84,7 @@ namespace Podium.Scenarios
         private static readonly Color CorLuminaria = new Color(0.98f, 0.97f, 0.88f);
         private static readonly Color CorAssento = new Color(0.22f, 0.33f, 0.46f);
         private static readonly Color CorCaderno = new Color(0.88f, 0.87f, 0.82f);
+        private static readonly Color CorMarca = new Color(0.86f, 0.62f, 0.22f);
 
         // Medidas repetidas por toda a cenografia.
         private const float EspessuraParede = 0.2f;
@@ -130,6 +136,7 @@ namespace Podium.Scenarios
             MontarFrente(sala, telas, meiaLargura, zFrente);
             MontarLaterais(sala, meiaLargura, zFrente, zFundo);
             MontarPulpito(sala, telas);
+            MontarMarcaNoChao(sala);
             MontarPlateia(sala);
 
             Transform banca = new GameObject("Banca").transform;
@@ -147,6 +154,8 @@ namespace Podium.Scenarios
                 DescartarAoSalvar();
                 return;
             }
+
+            ApagarSolSeFechada();
 
             // Num headset a altura dos olhos vem do tracking, e o rig já nasceu no lugar
             // certo: reposicionar a câmera aqui a arrancaria de dentro do XR Origin e
@@ -174,6 +183,31 @@ namespace Podium.Scenarios
             RenderSettings.ambientSkyColor = new Color(0.42f, 0.45f, 0.50f);
             RenderSettings.ambientEquatorColor = new Color(0.33f, 0.33f, 0.34f);
             RenderSettings.ambientGroundColor = new Color(0.19f, 0.18f, 0.17f);
+        }
+
+        /// <summary>
+        /// Com teto, a luz direcional da cena não ilumina a sala — o teto e as paredes fazem
+        /// sombra nela inteira. O que chega lá dentro é vazamento: o mapa de sombras não tem
+        /// resolução para paredes de 20 cm, e a luz escapa pelas junções em faixas
+        /// serrilhadas no alto das paredes e manchas no chão, que no headset ainda cintilam
+        /// com o movimento da cabeça. E custa o mapa de sombras a cada quadro. Quem ilumina a
+        /// sala são as luminárias e a luz ambiente. Só no Play: fora dele, mexer na luz
+        /// sujaria o arquivo da cena.
+        /// </summary>
+        private void ApagarSolSeFechada()
+        {
+            if (!comTeto)
+            {
+                return;
+            }
+
+            foreach (Light luz in FindObjectsByType<Light>(FindObjectsSortMode.None))
+            {
+                if (luz.type == LightType.Directional && !luz.transform.IsChildOf(transform))
+                {
+                    luz.enabled = false;
+                }
+            }
         }
 
         /// <summary>Derruba a sala montada. Serve ao Play e à pré-visualização do Editor.</summary>
@@ -441,6 +475,33 @@ namespace Podium.Scenarios
             CriarTela(telas, "Monitor de retorno",
                       posicaoDoPulpito + new Vector3(-0.14f, 1.37f, -0.065f),
                       Quaternion.Euler(14f, 0f, 0f), larguraDoMonitor, alturaDoMonitor);
+        }
+
+        /// <summary>
+        /// Onde ficar e para onde olhar: um disco no chão, no ponto de nascimento, com uma
+        /// ponta virada para a banca. No PC fica sob a câmera e ninguém a vê; no headset é
+        /// a referência para voltar ao púlpito sem tatear — e o painel e o monitor de
+        /// retorno foram posicionados a partir deste ponto.
+        /// </summary>
+        private void MontarMarcaNoChao(Transform sala)
+        {
+            if (!comMarcaNoChao)
+            {
+                return;
+            }
+
+            Transform marca = Filho(sala, "Marca do apresentador", Vector3.zero);
+
+            // O Cylinder nasce com 1 m de diâmetro e 2 m de altura: aqui, 0,5 m e 8 mm.
+            GameObject disco = Criar(PrimitiveType.Cylinder, "Disco", new Vector3(0f, 0.004f, 0f),
+                                     new Vector3(0.5f, 0.004f, 0.5f), marca, CorMarca);
+            SemColisor(disco);
+
+            // Antes do corpo do púlpito (z = 0,44 m), para não sumir embaixo dele.
+            GameObject ponta = Criar(PrimitiveType.Cube, "Ponta", new Vector3(0f, 0.004f, 0.3f),
+                                     Quaternion.Euler(0f, 45f, 0f),
+                                     new Vector3(0.13f, 0.008f, 0.13f), marca, CorMarca);
+            SemColisor(ponta);
         }
 
         // -------------------------------------------------------------- pessoas

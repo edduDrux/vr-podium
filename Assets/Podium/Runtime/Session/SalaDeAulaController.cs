@@ -108,6 +108,42 @@ namespace Podium.Session
             get { return perguntaSelecionada; }
         }
 
+        /// <summary>A verificação da API está em andamento.</summary>
+        public bool VerificandoApi
+        {
+            get { return verificandoApi; }
+        }
+
+        /// <summary>
+        /// A tela que está no ar é o lobby: antes da sessão, depois de uma falha ou depois de
+        /// "Nova sessão". Exposto porque, sem isto, o painel do headset olhava só o estado da
+        /// sessão — que continua Completed depois de "Nova sessão" — e o botão não fazia nada.
+        /// </summary>
+        public bool NoLobby
+        {
+            get
+            {
+                if (session == null)
+                {
+                    return true;
+                }
+
+                PodiumSessionState estado = session.State;
+                return estado == PodiumSessionState.Idle ||
+                       estado == PodiumSessionState.Failed ||
+                       (estado == PodiumSessionState.Completed && voltarAoLobby);
+            }
+        }
+
+        /// <summary>
+        /// O navegador de perguntas está no ar: é quando os comandos de avançar e voltar
+        /// andam pelas perguntas, e não pelos slides.
+        /// </summary>
+        public bool NoNavegadorDePerguntas
+        {
+            get { return NavegandoPerguntas(); }
+        }
+
         public string NomeDaPersona
         {
             get
@@ -522,8 +558,9 @@ namespace Podium.Session
         }
 
         /// <summary>
-        /// Comandos de slide. Ficam no painel além do teclado porque no headset não há
-        /// teclado, e este é o lugar onde os botões da mão virão morar.
+        /// Comandos de slide por clique, além do teclado. No headset este painel não aparece:
+        /// quem faz esse papel é o <c>PainelEmVR</c>, e os botões do controle e a pinça da
+        /// mão (ver <c>ComandosDoApresentador</c>).
         /// </summary>
         private void DesenharSlides()
         {

@@ -6,9 +6,15 @@ using UnityEditor.Build;
 using UnityEditor.PackageManager.UI;
 using UnityEditor.XR.Management;
 using UnityEditor.XR.Management.Metadata;
+using UnityEditor.XR.OpenXR;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.XR.Management;
+using UnityEngine.XR.OpenXR;
+using UnityEngine.XR.OpenXR.Features;
+using UnityEngine.XR.OpenXR.Features.Interactions;
+using UnityEngine.XR.OpenXR.Features.MetaQuestSupport;
 
 namespace Podium.EditorTools
 {
@@ -20,6 +26,12 @@ namespace Podium.EditorTools
     /// o pacote; sem HTTP em texto claro liberado toda chamada à API local falha com erro
     /// genérico de rede; e com a entrada só no sistema novo os atalhos de teclado que a
     /// apresentação usa passam a lançar exceção.
+    /// </para>
+    /// <para>
+    /// E o mais silencioso de todos: sem perfil de interação ligado no OpenXR, o runtime não
+    /// entrega controle nem mão nenhuma ao app. O headset mostra a sala, o rig existe, e não
+    /// há raio, clique nem botão — foi exatamente o que o log do Quest 3 registrou em
+    /// 2026-09-20 ("Action Sets: No action sets registered").
     /// </para>
     /// <para>
     /// Roda em modo de lote também (<c>-executeMethod</c>), que é como isto foi conferido.
@@ -43,17 +55,175 @@ namespace Podium.EditorTools
 
             feito.Add(ImportarRig());
             feito.Add(LigarOpenXR());
+            feito.Add(LigarPerfisDeInteracao());
             feito.Add(AjustarAndroid());
             feito.Add(AjustarEntrada());
             feito.Add(AjustarQualidade());
+            feito.Add(AjustarRenderizacaoDoQuest());
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
             string relatorio = string.Join("\n  · ", feito.Where(x => !string.IsNullOrEmpty(x)));
             Debug.Log("[Podium] Projeto preparado para o Quest:\n  · " + relatorio +
-                      "\n\nFalta: atribuir o prefab do rig no componente PodiumXRRig da " +
+                      "\n\nFalta: rodar Podium > Ligar a transcrição local e o headset na " +
                       "cena e trocar o baseUrl do PodiumApiConfig pelo IP do PC na rede.");
+
+            ConferirValidacao();
+        }
+
+        /// <summary>
+        /// Lista o que a validação do OpenXR reclama, em Android e em Standalone (o Quest
+        /// Link). É a mesma lista da janela Project Validation, só que legível em modo de
+        /// lote — que é como este projeto confere as configurações.
+        /// </summary>
+        [MenuItem("Podium/Conferir a validação do OpenXR")]
+        public static void ConferirValidacao()
+        {
+            List<string> linhas = new List<string>();
+            List<OpenXRFeature.ValidationRule> problemas = new List<OpenXRFeature.ValidationRule>();
+
+            // O OpenXR 1.18 tem uma regra do Meta Quest Support que lê as configurações do
+            // grupo SELECIONADO no Editor, e não do que está sendo validado — com o Standalone
+            // selecionado, validar o Android estoura. Selecionar o grupo só muda a seleção da
+            // janela de build; a plataforma ativa (e a reimportação que ela custa) fica igual.
+            BuildTargetGroup selecionado = EditorUserBuildSettings.selectedBuildTargetGroup;
+
+            try
+            {
+                foreach (BuildTargetGroup grupo in new[] { BuildTargetGroup.Android, BuildTargetGroup.Standalone })
+                {
+                    EditorUserBuildSettings.selectedBuildTargetGroup = grupo;
+
+                    try
+                    {
+                        OpenXRProjectValidation.GetCurrentValidationIssues(problemas, grupo);
+                    }
+                    catch (System.Exception e)
+                    {
+                        linhas.Add(grupo + ": a validação do pacote falhou (" + e.GetType().Name +
+                                   ": " + e.Message + ")");
+                        continue;
+                    }
+
+                    if (problemas.Count == 0)
+                    {
+                        linhas.Add(grupo + ": nenhum problema");
+                        continue;
+                    }
+
+                    foreach (OpenXRFeature.ValidationRule regra in problemas)
+                    {
+                        linhas.Add(grupo + ": " + (regra.error ? "ERRO " : "aviso ") + regra.message);
+                    }
+                }
+            }
+            finally
+            {
+                EditorUserBuildSettings.selectedBuildTargetGroup = selecionado;
+            }
+
+            Debug.Log("[Podium] Validação do OpenXR:\n  · " + string.Join("\n  · ", linhas));
+        }
+
+        /// <summary>
+        /// Os perfis que dizem ao runtime quais controles o app entende — Touch (Quest 2),
+        /// Touch Plus (Quest 3/3S) e Touch Pro — e o perfil de mão padrão do OpenXR
+        /// (<c>XR_EXT_hand_interaction</c>), que entrega a mira e a pinça das mãos com os
+        /// mesmos nomes que as ações do XR Interaction Toolkit já escutam. Com ele as mãos
+        /// apertam os botões do painel sem pacote novo: nem XR Hands, nem SDK da Meta.
+        /// <para>
+        /// Mais o "Meta Quest Support" no Android, que põe no manifesto o que faz o Quest
+        /// abrir o app como VR — e não como uma janela plana.
+        /// </para>
+        /// </summary>
+        private static string LigarPerfisDeInteracao()
+        {
+            List<string> ligados = new List<string>();
+
+            foreach (BuildTargetGroup grupo in new[] { BuildTargetGroup.Android, BuildTargetGroup.Standalone })
+            {
+                OpenXRSettings openXR = OpenXRSettings.GetSettingsForBuildTargetGroup(grupo);
+                if (openXR == null)
+                {
+                    ligados.Add("ATENÇÃO: sem configurações do OpenXR para " + grupo);
+                    continue;
+                }
+
+                Ligar<OculusTouchControllerProfile>(openXR, grupo, ligados);
+                Ligar<MetaQuestTouchPlusControllerProfile>(openXR, grupo, ligados);
+                Ligar<MetaQuestTouchProControllerProfile>(openXR, grupo, ligados);
+                Ligar<HandInteractionProfile>(openXR, grupo, ligados);
+
+                if (grupo == BuildTargetGroup.Android)
+                {
+                    Ligar<MetaQuestFeature>(openXR, grupo, ligados);
+
+                    // A entrada passa a ser lida depois de esperar o quadro, mais perto da hora
+                    // em que ele aparece: menos atraso entre a pinça (ou o gatilho) e o clique.
+                    // É a recomendação da própria validação do Meta Quest Support.
+                    if (openXR.latencyOptimization != OpenXRSettings.LatencyOptimization.PrioritizeInputPolling)
+                    {
+                        openXR.latencyOptimization = OpenXRSettings.LatencyOptimization.PrioritizeInputPolling;
+                        ligados.Add("latência priorizando a leitura da entrada (Android)");
+                    }
+                }
+
+                EditorUtility.SetDirty(openXR);
+            }
+
+            return ligados.Count > 0
+                ? "OpenXR: " + string.Join(", ", ligados)
+                : "perfis de controle e de mão já estavam ligados";
+        }
+
+        private static void Ligar<T>(OpenXRSettings openXR, BuildTargetGroup grupo, List<string> ligados)
+            where T : OpenXRFeature
+        {
+            T recurso = openXR.GetFeature<T>();
+            if (recurso == null)
+            {
+                ligados.Add("ATENÇÃO: " + typeof(T).Name + " não existe em " + grupo);
+                return;
+            }
+
+            if (recurso.enabled)
+            {
+                return;
+            }
+
+            recurso.enabled = true;
+            EditorUtility.SetDirty(recurso);
+            ligados.Add(typeof(T).Name + " (" + grupo + ")");
+        }
+
+        /// <summary>
+        /// O asset de URP do nível Mobile — o do Quest — vinha do template de celular: sem
+        /// MSAA, com HDR e renderizando a 80%. No headset isso é serrilhado cintilando em
+        /// toda borda e texto do painel borrado. MSAA 4x é quase de graça na GPU de tiles do
+        /// Quest; HDR não serve a esta cena (não há pós-processamento) e força uma cópia da
+        /// imagem inteira a cada quadro.
+        /// </summary>
+        private static string AjustarRenderizacaoDoQuest()
+        {
+            int mobile = System.Array.FindIndex(
+                QualitySettings.names, n => n.Equals("Mobile", System.StringComparison.OrdinalIgnoreCase));
+
+            UniversalRenderPipelineAsset urp = mobile >= 0
+                ? QualitySettings.GetRenderPipelineAssetAt(mobile) as UniversalRenderPipelineAsset
+                : null;
+
+            if (urp == null)
+            {
+                return "ATENÇÃO: o nível Mobile não tem asset de URP.";
+            }
+
+            urp.msaaSampleCount = 4;
+            urp.supportsHDR = false;
+            urp.renderScale = 1f;
+            EditorUtility.SetDirty(urp);
+
+            return "URP do Quest: MSAA 4x, sem HDR, escala 1,0 (" + urp.name + ")";
         }
 
         /// <summary>

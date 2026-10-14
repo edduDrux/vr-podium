@@ -17,8 +17,12 @@ Integração fechada, uma sala jogável no PC e o caminho do headset montado. **
 cliente HTTP das oito rotas, gravação de microfone em pedaços, **transcrição da fala no
 próprio aparelho enquanto ela acontece**, a máquina de estados da sessão, um teste de
 fumaça que roda o fluxo inteiro no Editor, a Sala de Aula com os slides na parede e o
-navegador das perguntas da banca, e **OpenXR com o rig e o painel de VR**.
-**Não existe:** avatares e voz da banca (TTS).
+navegador das perguntas da banca, e **OpenXR com o rig, o painel de VR e comandos pelo
+controle e pela mão**. **Não existe:** avatares e voz da banca (TTS).
+
+A análise do VR de 2026-09-22 — por que o painel não aparecia no Quest 3 e por que
+controle e mão não eram reconhecidos, com as evidências e o que mudou — está em
+[`docs/ANALISE-VR.md`](docs/ANALISE-VR.md).
 
 A ordem é deliberada — a integração é o risco técnico do projeto, e ela cabe num teste de
 Editor. Modelar sala de aula não é o TCC: a cenografia é de primitivos, e as personas
@@ -48,13 +52,15 @@ Assets/Podium/
   Runtime/Session/    PodiumSession (orquestra tudo) · SalaDeAulaController (fluxo + painel de PC)
   Runtime/Scenarios/  ScenarioDefinition · PersonaDefinition (ScriptableObjects) · SalaDeAulaCenografia
   Runtime/Slides/     ApresentacaoDeSlides · TelaDeSlides · ConversorDeSlides (PDF/PPTx > PNG)
-  Runtime/XR/         PodiumXRRig (rig do headset) · PainelEmVR (painel no mundo)
+  Runtime/XR/         PodiumXRRig (rig do headset) · PainelEmVR (painel no mundo) ·
+                      ComandosDoApresentador (botões do controle e gestos da mão)
   Scenarios/          SalaDeAula.asset (único cenário que o backend conhece)
   Personas/           ProfessorRigoroso · OrientadorAcolhedor · EspecialistaTecnico (espelham PersonaType)
   Scenes/             SalaDeAula.unity (roda no PC e no headset)
   Samples/            PodiumSmokeTest · SmokeTest.unity (cena pronta)
 Assets/Tests/EditMode/   WavEncoder · PodiumDto · OrdemDosSlides · CapturaDoMicrofone ·
-                         TranscricaoLocal (27 testes NUnit, sem rede)
+                         TranscricaoLocal · PainelEmVR · ComandosDoApresentador
+                         (43 testes NUnit, sem rede)
 Assets/Editor/           PodiumTestSetup · PodiumSlideExporter · PodiumSalaPreview ·
                          PodiumQuestSetup · PodiumSalaSetup · PodiumModeloSetup
 Assets/Samples/          Starter Assets do XR Interaction Toolkit (o rig)
@@ -116,7 +122,7 @@ O que está na cena e onde mexer:
 |---|---|---|
 | `Podium` | `PodiumApiClient`, `PresentationRecorder`, `PodiumSession`, `SalaDeAulaController`, `SalaDeAulaCenografia`, `ApresentacaoDeSlides` | O fluxo inteiro. O `Controller` decide a sessão e desenha o painel de PC (IMGUI, sem pacote). A `Cenografia` cria chão, púlpito, mesa, tela e um lugar por persona em runtime. A `ApresentacaoDeSlides` acha as imagens e guarda o slide no ar. |
 | `Podium` | `WhisperManager`, `TranscritorLocal` | Transcrevem a fala aqui mesmo, enquanto ela acontece. Desligue `ligado` no `TranscritorLocal` para forçar o STT do servidor — é assim que se compara as duas transcrições. |
-| `Podium` | `PodiumXRRig`, `PainelEmVR` | Só entram quando há headset ativo. No PC ficam quietos. |
+| `Podium` | `PodiumXRRig`, `PainelEmVR`, `ComandosDoApresentador` | Só entram quando há headset ativo. No PC ficam quietos. |
 | `Main Camera` | Camera | Reposicionada no `spawnPosition` do cenário, a 1,6 m de altura. Desligada quando o rig assume. |
 
 ### Os slides na parede
@@ -215,11 +221,12 @@ Uma fala de 10 min leva **cerca de 3 minutos** entre o `/analyze` e o feedback (
 
 ## Testes
 
-`Window > General > Test Runner`, aba **EditMode**, *Run All*. **27 testes**, em segundos,
+`Window > General > Test Runner`, aba **EditMode**, *Run All*. **43 testes**, em segundos,
 sem rede e sem backend: cabeçalho e escala do WAV, leitura dos DTOs a partir de respostas
 reais da API (incluindo os nulos que o `JsonUtility` não representa), a montagem da URL, a
-ordem natural dos slides, a volta do anel do microfone e o nome do modelo que sobe na
-auditoria.
+ordem natural dos slides, a volta do anel do microfone, o nome do modelo que sobe na
+auditoria, a virada do painel de VR para quem apresenta, o resumo do feedback no headset e
+as regras dos comandos (para onde vão o A e o B, e como se distingue mão de controle).
 
 Pela linha de comando, sem abrir o Editor:
 
@@ -229,8 +236,9 @@ Pela linha de comando, sem abrir o Editor:
 
 O que os testes **não** cobrem, porque exige microfone, rede ou headset: a captura em si
 do `PresentationRecorder`, o `PodiumSession`, o cliente HTTP, a transcrição do whisper e
-tudo que só existe dentro do VR. Para os primeiros existe o teste de fumaça; para o VR,
-não há substituto para vestir o aparelho.
+o que só existe dentro do VR — o raio apertando o botão, a pinça, a vibração. Para os
+primeiros existe o teste de fumaça; para o VR, não há substituto para vestir o aparelho
+(o roteiro de conferência está em `docs/ANALISE-VR.md`).
 
 ## Rede — o que quebra ao sair do Editor
 
@@ -346,9 +354,13 @@ de qualidade que ele traz:
 | PC | `Assets/Settings/PC_RPAsset.asset` | Editor e builds desktop |
 | Mobile | `Assets/Settings/Mobile_RPAsset.asset` | Android — é o do Quest |
 
-Ao montar a cena e ligar o XR, confirme que a plataforma Android está no nível **Mobile**
-(`Project Settings > Quality`), e ajuste ali MSAA e sombras: no Quest, custo de GPU é
-custo de conforto.
+O Android fica no nível **Mobile** (`Project Settings > Quality`), e o *Preparar o projeto
+para o Quest* deixa o asset dele com **MSAA 4x, sem HDR e escala 1,0**: o template de
+celular vinha sem MSAA, com HDR e a 80% da resolução — no headset, serrilhado cintilando
+em toda borda e o texto do painel borrado. A sala fechada também desliga a luz direcional
+no Play: com teto ela não ilumina a sala, só vaza pelas junções do teto com as paredes em
+faixas serrilhadas (o mapa de sombras não tem resolução para paredes de 20 cm), e custa o
+mapa de sombras a cada quadro. No Quest, custo de GPU é custo de conforto.
 
 ## Como rodar no Quest
 
@@ -356,16 +368,20 @@ O projeto já vem com OpenXR ligado e com os ajustes de Android aplicados. Do ze
 máquina nova, são três comandos de menu e uma build.
 
 1. **`Podium > Preparar o projeto para o Quest`.** Importa as Starter Assets do XR
-   Interaction Toolkit, liga o OpenXR em Android e Standalone e ajusta o Player: IL2CPP,
-   ARM64, API mínima 29, HTTP em texto claro liberado, Vulkan, qualidade Mobile e entrada
-   nos **dois** sistemas. Se ele disser para reiniciar o Editor, reinicie — a troca do
-   sistema de entrada só vale depois disso.
+   Interaction Toolkit, liga o OpenXR em Android e Standalone **com os perfis de
+   interação** (Touch, Touch Plus, Touch Pro e o perfil de mão `XR_EXT_hand_interaction`)
+   e o *Meta Quest Support* no Android, e ajusta o Player: IL2CPP, ARM64, API mínima 29,
+   HTTP em texto claro liberado, Vulkan, qualidade Mobile, entrada nos **dois** sistemas e
+   o URP do Quest (MSAA 4x, sem HDR, escala 1,0). Termina listando o que a validação do
+   OpenXR reclama. Se ele disser para reiniciar o Editor, reinicie — a troca do sistema de
+   entrada só vale depois disso.
 2. **`Podium > Baixar o modelo de transcrição`.** Traz o `ggml-base-q5_1.bin` (~57 MB) do
    Hugging Face para `StreamingAssets/Whisper/`. O arquivo não está no repositório e não
    deve entrar: é binário grande, e o Git guardaria uma cópia inteira a cada troca.
 3. **`Podium > Ligar a transcrição local e o headset na cena`.** Põe na cena o
-   `WhisperManager`, o `TranscritorLocal`, o `PodiumXRRig` e o `PainelEmVR`, e liga um ao
-   outro. É idempotente: rodar de novo conserta o que faltar.
+   `WhisperManager`, o `TranscritorLocal`, o `PodiumXRRig`, o `PainelEmVR` e o
+   `ComandosDoApresentador`, e liga um ao outro. É idempotente: rodar de novo conserta o
+   que faltar.
 4. **Troque o `baseUrl`** do `PodiumApiConfig` pelo IP do PC na rede (veja *Rede* abaixo).
    `localhost` no headset é o próprio headset.
 5. `File > Build Profiles`, plataforma **Android**, e *Build And Run* com o Quest ligado
@@ -377,22 +393,42 @@ Cada um desses passos roda em modo de lote, que é como foram conferidos:
 "C:/Program Files/Unity/Hub/Editor/6000.5.10f1/Editor/Unity.exe" -projectPath C:/Users/eduar/projetos/podium-vr -batchmode -nographics -quit -executeMethod Podium.EditorTools.PodiumQuestSetup.Preparar
 ```
 
-**O que ainda não foi verificado dentro de um headset.** Não havia Quest conectado a esta
-máquina quando isto foi escrito: compilação, testes de EditMode e os três menus foram
-executados e conferidos, mas o rig em uso, o raio apertando os botões do painel e a
-velocidade do whisper no XR2 continuam por medir. Meça antes de afirmar no relatório — em
-especial quantos segundos de atraso a transcrição acumula numa fala de 10 min, porque é
-esse número que decide entre o modelo `base` e o `tiny`.
+**O que já se viu dentro de um headset, e o que falta.** Em 2026-09-20 um Quest 3 rodou a
+cena pelo Link, e o log do Editor mostrou o motivo de não haver raio nem painel utilizável:
+`Action Sets: No action sets registered` — nenhum perfil de interação ligado, logo nenhum
+controle nem mão chegava ao app. Isso foi corrigido e conferido em modo de lote
+(compilação, 43 testes, validação do OpenXR e capturas da visão de quem apresenta, em
+`docs/analise-vr/`). Continuam por conferir no aparelho: o raio e a pinça apertando os
+botões, a vibração e a velocidade do whisper no XR2. Meça antes de afirmar no relatório —
+em especial quantos segundos de atraso a transcrição acumula numa fala de 10 min, porque
+é esse número que decide entre o modelo `base` e o `tiny`.
 
-O SDK da Meta (passthrough, hand tracking) só entra se uma feature específica pedir;
-OpenXR puro mantém o projeto portátil.
+O SDK da Meta (passthrough, malha das mãos) só entra se uma feature específica pedir:
+as mãos já funcionam pelo perfil padrão do OpenXR, e OpenXR puro mantém o projeto
+portátil.
 
 ### Dentro do headset a interface é outra
 
 O painel IMGUI não aparece no Quest — o IMGUI desenha no buffer da tela, e no VR isso não
-é lugar nenhum. Quem assume é o `PainelEmVR`: um quadro flutuante à esquerda do púlpito,
-com três botões que o raio do controle aperta. Mostra a mesma sessão e comanda o mesmo
-`SalaDeAulaController`; o que muda é o desenho, não o fluxo.
+é lugar nenhum. Quem assume é o `PainelEmVR`: um quadro à **direita** do púlpito, virado
+para quem apresenta, com até quatro botões que o raio aperta — pelo gatilho do controle ou
+pela pinça da mão. À esquerda fica o monitor de retorno, que taparia os botões, e a banca
+fica livre à frente. Mostra a mesma sessão e comanda o mesmo `SalaDeAulaController`,
+inclusive o que antes só o PC tinha: *Verificar API* no lobby e o resumo do feedback.
+
+Os comandos que não pedem mira ficam no `ComandosDoApresentador`:
+
+| Comando | Controle | Mão |
+|---|---|---|
+| Apertar um botão do painel | aponte e aperte o gatilho | aponte e junte indicador e polegar (pinça) |
+| Avançar slide ou pergunta | A ou X | botão *Próximo* do painel |
+| Voltar slide ou pergunta | B ou Y | botão *Anterior* do painel |
+| Trazer o painel para perto | Menu (controle esquerdo) | pinça segurada ~1 s fora do painel |
+| Recentralizar a sala | segurar o botão da Meta | gesto de recentralizar do sistema |
+
+A linha de ajuda do painel diz se o headset está lendo controles, mãos ou nada. Uma marca
+no chão mostra onde ficar e para onde olhar. O rig não anda pelo analógico nem pula:
+quem apresenta fica no púlpito, e o botão A passa slide.
 
 No PC nada disso entra em cena, e o painel da tela continua como antes.
 
@@ -404,4 +440,4 @@ No PC nada disso entra em cena, e o painel da tela continua como antes.
 | **Avatares da banca** | TCC III. O ponto de encaixe existe: `PersonaDefinition.avatarPrefab` |
 | **Autenticação** | Obrigatória antes de qualquer deploy público |
 | **Outros cenários** | O MVP entrega só a sala de aula; o backend só conhece `sala_de_aula` |
-| **Mãos sem controle** | `com.unity.xr.hands` não entrou: apontar e apertar já resolve, e hand tracking sem necessidade é pacote a defender na banca |
+| **Malha e toque das mãos** | As mãos já apontam e apertam pelo perfil padrão do OpenXR, sem pacote novo. Ver a mão desenhada e apertar botão encostando o dedo pede `com.unity.xr.hands` — só se o teste no aparelho mostrar que o raio não basta |

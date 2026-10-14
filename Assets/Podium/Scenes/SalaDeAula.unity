@@ -138,6 +138,7 @@ GameObject:
   - component: {fileID: 100010}
   - component: {fileID: 100009}
   - component: {fileID: 100008}
+  - component: {fileID: 100012}
   m_Layer: 0
   m_Name: Podium
   m_TagString: Untagged
@@ -262,6 +263,7 @@ MonoBehaviour:
   alturaTeto: 3.2
   comTeto: 1
   alturaOlhos: 1.6
+  comMarcaNoChao: 1
 --- !u!114 &100007
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -295,10 +297,12 @@ MonoBehaviour:
   recorder: {fileID: 100003}
   slides: {fileID: 100007}
   rig: {fileID: 100009}
-  posicao: {x: -0.85, y: 1.35, z: 0.75}
+  comandos: {fileID: 100012}
+  lugarDoPainel: {x: 0.85, y: 1.45, z: 0.8}
   larguraEmMetros: 1.1
   alturaEmMetros: 0.78
-  anguloDeVirada: 28
+  alturaDosOlhos: 1.6
+  toleranciaDeAngulo: 12
 --- !u!114 &100009
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -314,6 +318,7 @@ MonoBehaviour:
   rigPrefab: {fileID: 1717954561962503725, guid: f6336ac4ac8b4d34bc5072418cdc62a0, type: 3}
   scenario: {fileID: 11400000, guid: 95e9b93d4b75a59d40148a1110bafe27, type: 2}
   usarHeadset: 1
+  paradoNoPulpito: 1
 --- !u!114 &100010
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -362,6 +367,25 @@ MonoBehaviour:
   useVad: 1
   tokensTimestamps: 0
   audioCtx: 0
+--- !u!114 &100012
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4b77f96ddbd20de4f964e3518ee79b31, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Podium.Runtime::Podium.XR.ComandosDoApresentador
+  controlador: {fileID: 100005}
+  slides: {fileID: 100007}
+  painel: {fileID: 100008}
+  rig: {fileID: 100009}
+  segundosDePincaLonga: 0.9
+  intensidadeDaVibracao: 0.35
+  duracaoDaVibracao: 0.06
 --- !u!1 &302411137
 GameObject:
   m_ObjectHideFlags: 0

@@ -1,8 +1,11 @@
 using Podium.Scenarios;
 using Unity.XR.CoreUtils;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.XR;
 using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion.Jump;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion.Movement;
 using UnityEngine.XR.Management;
 
 namespace Podium.XR
@@ -19,8 +22,16 @@ namespace Podium.XR
     /// O rig vem do prefab do XR Interaction Toolkit (<c>XR Origin (XR Rig)</c>, das
     /// Starter Assets), e não de um montado à mão: controles, raios e interação com
     /// interface são justamente a parte que não compensa reescrever. Sem o prefab
-    /// atribuído, o componente degrada para cabeça rastreada na própria câmera da cena —
-    /// dá para olhar em volta, não dá para apontar.
+    /// atribuído, o componente monta uma origem mínima com a própria câmera da cena — dá
+    /// para olhar em volta e ler o painel, não dá para apontar.
+    /// </para>
+    /// <para>
+    /// O rig nasce assim que o headset fica ativo: quase sempre já no <c>Awake</c>, porque
+    /// o XR Management sobe o OpenXR antes da primeira cena. Se nesse instante o loader já
+    /// subiu mas o display ainda não, o componente espera quadro a quadro em vez de
+    /// concluir que é PC — decidir cedo demais deixava o headset sem rig e sem painel.
+    /// Por isso quem depende do rig pergunta <see cref="EmHeadset"/> enquanto a resposta for
+    /// não, em vez de perguntar uma vez só no <c>Start</c>.
     /// </para>
     /// </summary>
     public class PodiumXRRig : MonoBehaviour
@@ -35,12 +46,27 @@ namespace Podium.XR
         [Tooltip("Desligue para ensaiar a cena no PC mesmo com um headset conectado.")]
         [SerializeField] private bool usarHeadset = true;
 
+        [Header("Conforto")]
+        [Tooltip("Tira do rig o andar contínuo pelo analógico e o pulo. Quem apresenta fica " +
+                 "no púlpito; andar pelo analógico enjoa, e o pulo ocupa o botão A, que aqui " +
+                 "passa o slide. Girar e teletransportar continuam valendo.")]
+        [SerializeField] private bool paradoNoPulpito = true;
+
         private GameObject rig;
 
         /// <summary>O rig entrou, ou seja: a sessão está sendo vista de dentro do headset.</summary>
         public bool EmHeadset
         {
             get { return rig != null; }
+        }
+
+        /// <summary>
+        /// A raiz do rig montado (o XR Origin), ou null no PC. É por ela que os comandos
+        /// acham os controles, os raios e a vibração.
+        /// </summary>
+        public GameObject Rig
+        {
+            get { return rig; }
         }
 
         /// <summary>Câmera que enxerga a sala — a do rig no headset, a da cena no PC.</summary>
@@ -73,6 +99,12 @@ namespace Podium.XR
                 return false;
             }
 
+            return XRCarregado();
+        }
+
+        /// <summary>O XR Management tem um loader de pé: o headset pode estar a caminho.</summary>
+        private static bool XRCarregado()
+        {
             XRGeneralSettings geral = XRGeneralSettings.Instance;
             return geral != null && geral.Manager != null && geral.Manager.activeLoader != null;
         }
@@ -85,7 +117,33 @@ namespace Podium.XR
         /// </summary>
         private void Awake()
         {
-            if (!usarHeadset || !HeadsetAtivo())
+            if (!usarHeadset)
+            {
+                enabled = false;
+                return;
+            }
+
+            TentarMontar();
+        }
+
+        /// <summary>
+        /// Só trabalha enquanto o headset não ficou ativo mas o loader do XR está de pé.
+        /// Sem loader não há o que esperar — é o PC —, e o componente se desliga.
+        /// </summary>
+        private void Update()
+        {
+            if (EmHeadset || !XRCarregado())
+            {
+                enabled = false;
+                return;
+            }
+
+            TentarMontar();
+        }
+
+        private void TentarMontar()
+        {
+            if (EmHeadset || !HeadsetAtivo())
             {
                 return;
             }
@@ -98,29 +156,23 @@ namespace Podium.XR
                 rig = Instantiate(rigPrefab, origem, frente);
                 rig.name = "XR Origin (Podium)";
                 AjustarOrigem(rig);
+                AjustarParaApresentar(rig);
                 DesligarCameraDaCena(rig);
-                return;
             }
-
-            // Sem prefab, ao menos a cabeça acompanha: uma imagem parada dentro de um
-            // headset não é uma interface simplificada, é enjoo.
-            Camera camera = Camera.main;
-            if (camera == null)
+            else
             {
-                Debug.LogWarning("[Podium] Sem rig e sem Main Camera: o headset não terá imagem.");
-                return;
+                // Sem prefab, ao menos a cabeça acompanha: uma imagem parada dentro de um
+                // headset não é uma interface simplificada, é enjoo.
+                rig = MontarOrigemMinima(origem, frente);
+                if (rig == null)
+                {
+                    return;
+                }
+
+                Debug.LogWarning("[Podium] Rig do XR Interaction Toolkit não atribuído: só a " +
+                                 "cabeça é rastreada, sem controles nem mãos. Use Podium > " +
+                                 "Preparar o projeto para o Quest.");
             }
-
-            camera.transform.SetPositionAndRotation(origem + Vector3.up * 1.6f, frente);
-
-            if (camera.GetComponent<TrackedPoseDriver>() == null)
-            {
-                camera.gameObject.AddComponent<TrackedPoseDriver>();
-            }
-
-            Debug.LogWarning("[Podium] Rig do XR Interaction Toolkit não atribuído: só a " +
-                             "cabeça é rastreada, sem controles. Use Podium > Preparar o " +
-                             "projeto para o Quest.");
         }
 
         /// <summary>
@@ -134,6 +186,30 @@ namespace Podium.XR
             if (origem != null)
             {
                 origem.RequestedTrackingOriginMode = XROrigin.TrackingOriginMode.Floor;
+            }
+        }
+
+        /// <summary>
+        /// O rig das Starter Assets vem pronto para explorar uma cena: anda pelo analógico
+        /// esquerdo e pula no botão A. Numa defesa de TCC a pessoa fica no púlpito — andar
+        /// pelo analógico só a tiraria de lá (e enjoa), e o A é o botão de passar slide.
+        /// </summary>
+        private void AjustarParaApresentar(GameObject instancia)
+        {
+            if (!paradoNoPulpito)
+            {
+                return;
+            }
+
+            foreach (ContinuousMoveProvider andar in
+                     instancia.GetComponentsInChildren<ContinuousMoveProvider>(true))
+            {
+                andar.enabled = false;
+            }
+
+            foreach (JumpProvider pulo in instancia.GetComponentsInChildren<JumpProvider>(true))
+            {
+                pulo.enabled = false;
             }
         }
 
@@ -151,6 +227,63 @@ namespace Podium.XR
                     camera.gameObject.SetActive(false);
                 }
             }
+        }
+
+        /// <summary>
+        /// Um XR Origin feito à mão em volta da câmera da cena. A câmera solta, só com o
+        /// rastreamento, ficaria na altura do chão (o rastreamento sem origem não sabe onde
+        /// o chão está) e ignoraria o ponto de nascimento do cenário.
+        /// </summary>
+        private static GameObject MontarOrigemMinima(Vector3 origem, Quaternion frente)
+        {
+            Camera camera = Camera.main;
+            if (camera == null)
+            {
+                Debug.LogWarning("[Podium] Sem rig e sem Main Camera: o headset não terá imagem.");
+                return null;
+            }
+
+            // Montado desligado: o XROrigin lê os próprios campos no Awake, e eles só estão
+            // preenchidos no fim deste método.
+            GameObject raiz = new GameObject("XR Origin (Podium, sem controles)");
+            raiz.SetActive(false);
+            raiz.transform.SetPositionAndRotation(origem, frente);
+
+            GameObject deslocamento = new GameObject("Camera Offset");
+            deslocamento.transform.SetParent(raiz.transform, false);
+
+            camera.transform.SetParent(deslocamento.transform, false);
+            camera.transform.localPosition = Vector3.zero;
+            camera.transform.localRotation = Quaternion.identity;
+
+            // Perto o bastante para o painel e as mãos não sumirem cortados na frente do rosto.
+            camera.nearClipPlane = 0.02f;
+
+            XROrigin xrOrigin = raiz.AddComponent<XROrigin>();
+            xrOrigin.Camera = camera;
+            xrOrigin.CameraFloorOffsetObject = deslocamento;
+            xrOrigin.RequestedTrackingOriginMode = XROrigin.TrackingOriginMode.Floor;
+
+            // Os campos vêm vazios quando o componente é criado em tempo de execução: sem as
+            // ligações, o driver existe e não rastreia nada.
+            TrackedPoseDriver driver = camera.GetComponent<TrackedPoseDriver>();
+            if (driver == null)
+            {
+                driver = camera.gameObject.AddComponent<TrackedPoseDriver>();
+            }
+
+            driver.positionInput = new InputActionProperty(
+                new InputAction("Posição da cabeça", InputActionType.Value,
+                                "<XRHMD>/centerEyePosition", expectedControlType: "Vector3"));
+            driver.rotationInput = new InputActionProperty(
+                new InputAction("Rotação da cabeça", InputActionType.Value,
+                                "<XRHMD>/centerEyeRotation", expectedControlType: "Quaternion"));
+            driver.trackingStateInput = new InputActionProperty(
+                new InputAction("Rastreamento da cabeça", InputActionType.Value,
+                                "<XRHMD>/trackingState", expectedControlType: "Integer"));
+
+            raiz.SetActive(true);
+            return raiz;
         }
     }
 }
